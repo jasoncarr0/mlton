@@ -1,4 +1,5 @@
-(* Copyright (C) 1999-2007 Henry Cejtin, Matthew Fluet, Suresh
+(* Copyright (C) 2016 Matthew Fluet.
+ * Copyright (C) 1999-2007 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
@@ -19,6 +20,7 @@ datatype t =
              args: t vector,
              overflow: t,
              ty: Type.t}
+ | Bug
  | Call of {func: Func.t,
             args: t vector,
             ty: Type.t}
@@ -86,6 +88,8 @@ fun tuple (r as {exps, ...}) =
       then Vector.sub (exps, 0)
    else Tuple r
 
+val unit = tuple {exps = Vector.new0 (), ty = Type.unit}
+
 val var = Var
 
 fun primApp {args, prim, targs, ty} =
@@ -103,6 +107,15 @@ fun primApp {args, prim, targs, ty} =
                        targs = targs,
                        ty = ty}
    end
+
+fun bug msg =
+   lett {decs = [{var = Var.newNoname (),
+                  exp = primApp {prim = Prim.bug,
+                                 targs = Vector.new0 (),
+                                 args = Vector.new1 (const (Const.string msg)),
+                                 ty = Type.unit}}],
+         body = Bug}
+
 
 local
    fun make c = conApp {con = c, args = Vector.new0 (), ty = Type.bool}
@@ -129,6 +142,7 @@ in
          Arith {prim, args, overflow, ...} =>
             align [Prim.layoutApp (prim, args, layout),
                    seq [str "Overflow => ", layout overflow]]
+       | Bug => str "Bug"
        | Call {func, args, ty} =>
             seq [Func.layout func, str " ", layouts args,
                  str ": ", Type.layout ty]
@@ -397,6 +411,7 @@ fun linearize' (e: t, h: Handler.t, k: Cont.t): Label.t * Block.t list =
                                     success = l,
                                     ty = ty}}
                 end)
+          | Bug => {statements = [], transfer = Transfer.Bug}
           | Call {func, args, ty} =>
                loops
                (args, h, fn xs =>

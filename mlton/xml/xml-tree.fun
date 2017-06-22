@@ -85,7 +85,7 @@ structure Cases =
             open Layout
             fun doit (v, f) =
                align (Vector.toListMap (v, fn (x, e) =>
-                                        align [seq [f x, str " => "],
+                                        align [seq [f x, str " =>"],
                                                indent (layout e, 3)]))
          in
             case cs of
@@ -221,16 +221,16 @@ in
          Exception ca =>
             seq [str "exception ", layoutConArg ca]
        | Fun {decs, tyvars} =>
-            align [seq [str "val rec ", layoutTyvars tyvars],
+            align [seq [str "val rec", layoutTyvars tyvars],
                    indent (align (Vector.toListMap
                                   (decs, fn {lambda, ty, var} =>
                                    align [seq [maybeConstrain (Var.layout var, ty),
-                                               str " = "],
+                                               str " ="],
                                           indent (layoutLambda lambda, 3)])),
                            3)]
        | MonoVal {exp, ty, var} =>
             align [seq [str "val ",
-                        maybeConstrain (Var.layout var, ty), str " = "],
+                        maybeConstrain (Var.layout var, ty), str " ="],
                    indent (layoutPrimExp exp, 3)]
        | PolyVal {exp, ty, tyvars, var} =>
             align [seq [str "val ",
@@ -238,7 +238,7 @@ in
                            then layoutTyvars tyvars
                         else empty,
                         maybeConstrain (Var.layout var, ty),
-                        str " = "],
+                        str " ="],
                    indent (layoutExp exp, 3)]
    and layoutExp (Exp {decs, result}) =
       align [str "let",
@@ -283,7 +283,7 @@ in
        | Var x => VarExp.layout x
    and layoutLambda (Lam {arg, argType, body, ...}) =
       align [seq [str "fn ", maybeConstrain (Var.layout arg, argType),
-                  str " => "],
+                  str " =>"],
              layoutExp body]
 
 end   
@@ -432,8 +432,8 @@ structure Exp =
                 | Fun {tyvars, decs, ...} =>
                      (Vector.foreach (decs, fn {ty, var, ...} =>
                                       handleBoundVar (var, tyvars, ty))
-                      ; Vector.foreach (decs, fn {lambda, ...} =>
-                                        loopLambda lambda))
+                      ; Vector.foreach (decs, fn {lambda, ty, var} =>
+                                        loopPrimExp (var, ty, Lambda lambda)))
             and loopLambda (Lam {arg, argType, body, ...}): unit =
                (monoVar (arg, argType); loopExp body)
          in loopExp exp

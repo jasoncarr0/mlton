@@ -1,4 +1,5 @@
-(* Copyright (C) 1999-2005 Henry Cejtin, Matthew Fluet, Suresh
+(* Copyright (C) 2016 Matthew Fluet.
+ * Copyright (C) 1999-2005 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
@@ -114,10 +115,31 @@ fun sccFuns (Program.T {datatypes, body, overflow}) =
                                      in visit := ignore
                                      end))
                               end)
+                          fun doitFun nodes =
+                             Fun {tyvars = tyvars,
+                                  decs = Vector.fromListMap (nodes, nodeLambda)}
+                          fun doitMonoVal node =
+                             let
+                                val {var, ty, lambda} = nodeLambda node
+                             in
+                                MonoVal {var = var, ty = ty, exp = Lambda lambda}
+                             end
+                          fun doitPolyVal node =
+                             let
+                                val {var, ty, lambda} = nodeLambda node
+                             in
+                                PolyVal {var = var, ty = ty, tyvars = tyvars,
+                                         exp = Exp.fromPrimExp (Lambda lambda, ty)}
+                             end
                        in List.map
                           (Graph.stronglyConnectedComponents g, fn nodes =>
-                           Fun {tyvars = tyvars,
-                                decs = Vector.fromListMap (nodes, nodeLambda)})
+                           case nodes of
+                              [n] => if Node.hasEdge {from = n, to = n}
+                                        then doitFun nodes
+                                        else if Vector.isEmpty tyvars
+                                                then doitMonoVal n
+                                                else doitPolyVal n
+                            | _ => doitFun nodes)
                           @ decs
                        end))
             val _ = loopVarExp result

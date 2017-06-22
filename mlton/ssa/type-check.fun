@@ -109,6 +109,9 @@ fun checkScopes (program as
           | Call {func, args, ...} => (getFunc func; getVars args)
           | Case {test, cases, default, ...} =>
                let
+                  fun bug msg =
+                     Error.bug
+                     ("Ssa.TypeCheck.loopTransfer: case " ^ (Var.toString test) ^ " of ... ; " ^ msg)
                   fun doit (cases: ('a * 'b) vector,
                             equals: 'a * 'a -> bool,
                             hash: 'a -> word,
@@ -123,7 +126,7 @@ fun checkScopes (program as
                                   HashSet.insertIfNew
                                   (table, hash x, fn y => equals (x, y),
                                    fn () => x,
-                                   fn _ => Error.bug "Ssa.TypeCheck.loopTransfer: redundant branch in case")
+                                   fn _ => bug "redundant branch in case")
                             in
                                ()
                             end)
@@ -131,9 +134,9 @@ fun checkScopes (program as
                      in
                         case (IntInf.equals (numCases, numExhaustiveCases), isSome default) of
                            (true, true) =>
-                              Error.bug "Ssa.TypeCheck.loopTransfer: exhaustive case has default"
+                              bug "exhaustive case has default"
                          | (false, false) =>
-                              Error.bug "Ssa.TypeCheck.loopTransfer: non-exhaustive case has no default"
+                              bug "non-exhaustive case has no default"
                          | _ => ()
                      end
                   fun doitWord (ws, cases) =
@@ -143,7 +146,7 @@ fun checkScopes (program as
                         val numExhaustiveCases =
                            case Type.dest (getVar' test) of
                               Type.Datatype t => Int.toIntInf (getTycon' t)
-                            | _ => Error.bug "Ssa.TypeCheck.loopTransfer: case test is not a datatype"
+                            | _ => bug "test is not a datatype"
                      in
                         doit (cases, Con.equals, Con.hash, numExhaustiveCases)
                      end

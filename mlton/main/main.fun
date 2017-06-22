@@ -284,12 +284,37 @@ fun makeOptions {usage} =
                                                  end
                                             else usage ()
                                       end))),
+       (Expert, "closure-convert-cfa", " <cfa>",
+        "which control-flow-analysis to use during closure conversion",
+        SpaceString
+        (fn s =>
+         case List.peek (!Control.indirectFlags,
+                         fn {flag, ...} => String.equals ("cc-cfa", flag)) of
+            SOME {set, ...} =>
+               (case set s of
+                   Result.Yes () => ()
+                 | Result.No s' => usage (concat ["invalid -closure-convert-cfa arg: ", s']))
+          | NONE => Error.bug "closure convert cfa missing")),
        (Expert, "closure-convert-globalize", " {true|false}",
         "whether to globalize during closure conversion",
         Bool (fn b => (closureConvertGlobalize := b))),
+       (Expert, "closure-convert-refactor", " {false|true}",
+        "whether to use refactored closure conversion",
+        Bool (fn b => (closureConvertRefactor := b))),
        (Expert, "closure-convert-shrink", " {true|false}",
         "whether to shrink during closure conversion",
         Bool (fn b => (closureConvertShrink := b))),
+       (Expert, "closure-convert-trans", " <cfa>",
+        "which transform to use during closure conversion",
+        SpaceString
+        (fn s =>
+         case List.peek (!Control.indirectFlags,
+                         fn {flag, ...} => String.equals ("cc-trans", flag)) of
+            SOME {set, ...} =>
+               (case set s of
+                   Result.Yes () => ()
+                 | Result.No s' => usage (concat ["invalid -closure-convert-trans arg: ", s']))
+          | NONE => Error.bug "closure convert trans missing")),
        (Normal, "codegen",
         concat [" {",
                 String.concatWith
@@ -606,10 +631,12 @@ fun makeOptions {usage} =
                            usage (concat ["invalid -opt-passes flag: ", s])
                      in
                         List.foreach
-                        (!optimizationPasses, fn {il,set,...} =>
-                         case set s of
-                            Result.Yes () => ()
-                          | Result.No s' => err (concat [s', "(for ", il, ")"]))
+                        (!indirectFlags, fn {flag,set,...} =>
+                         if String.hasSuffix (flag, {suffix = "-passes"})
+                            then (case set s of
+                                     Result.Yes () => ()
+                                   | Result.No s' => err (concat [s', "(for ", flag, ")"]))
+                            else ())
                      end)),
        (Normal, "output", " <file>", "name of output file",
         SpaceString (fn s => output := SOME s)),
@@ -756,8 +783,8 @@ fun makeOptions {usage} =
        (Expert, "ssa-passes", " <passes>", "ssa optimization passes",
         SpaceString
         (fn s =>
-         case List.peek (!Control.optimizationPasses,
-                         fn {il, ...} => String.equals ("ssa", il)) of
+         case List.peek (!Control.indirectFlags,
+                         fn {flag, ...} => String.equals ("ssa-passes", flag)) of
             SOME {set, ...} =>
                (case set s of
                    Result.Yes () => ()
@@ -766,8 +793,8 @@ fun makeOptions {usage} =
        (Expert, "ssa2-passes", " <passes>", "ssa2 optimization passes",
         SpaceString
         (fn s =>
-         case List.peek (!Control.optimizationPasses,
-                         fn {il, ...} => String.equals ("ssa2", il)) of
+         case List.peek (!Control.indirectFlags,
+                         fn {flag, ...} => String.equals ("ssa2-passes", flag)) of
             SOME {set, ...} =>
                (case set s of
                    Result.Yes () => ()
@@ -782,11 +809,18 @@ fun makeOptions {usage} =
                    | "o" => Place.O
                    | "tc" => Place.TypeCheck
                    | _ => usage (concat ["invalid -stop arg: ", s])))),
+       (Expert, "stop-pass", " <pass>", "stop after pass",
+        SpaceString
+        (fn s => (case Regexp.fromString s of
+                     SOME (re,_) => let val re = Regexp.compileDFA re
+                                    in List.push (stopPasses, re)
+                                    end
+                   | NONE => usage (concat ["invalid -stop-pass flag: ", s])))),
        (Expert, "sxml-passes", " <passes>", "sxml optimization passes",
         SpaceString
         (fn s =>
-         case List.peek (!Control.optimizationPasses,
-                         fn {il, ...} => String.equals ("sxml", il)) of
+         case List.peek (!Control.indirectFlags,
+                         fn {flag, ...} => String.equals ("sxml-passes", flag)) of
             SOME {set, ...} =>
                (case set s of
                    Result.Yes () => ()
@@ -867,8 +901,8 @@ fun makeOptions {usage} =
        (Expert, "xml-passes", " <passes>", "xml optimization passes",
         SpaceString
         (fn s =>
-         case List.peek (!Control.optimizationPasses,
-                         fn {il, ...} => String.equals ("xml", il)) of
+         case List.peek (!Control.indirectFlags,
+                         fn {flag, ...} => String.equals ("xml-flags", flag)) of
             SOME {set, ...} =>
                (case set s of
                    Result.Yes () => ()
@@ -1509,6 +1543,7 @@ fun commandLine (args: string list): unit =
                            case !verbosity of
                               Silent => ()
                             | Top => ()
+                            | Pass => ()
                             | _ =>
                                  outputHeader
                                  (Control.No, fn l =>

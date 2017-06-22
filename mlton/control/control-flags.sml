@@ -13,6 +13,14 @@ struct
 structure C = Control ()
 open C
 
+val indirectFlags:
+   {flag: string, set: string -> unit Result.t, get: unit -> string} list ref =
+   control {name = "indirectFlags",
+            default = [],
+            toString = List.toString
+                       (fn {flag,get,...} => concat ["<",flag,"::",get (),">"])}
+
+
 structure Align =
    struct
       datatype t = Align4 | Align8
@@ -55,6 +63,10 @@ val chunk = control {name = "chunk",
 val closureConvertGlobalize = control {name = "closureConvertGlobalize",
                                        default = true,
                                        toString = Bool.toString}
+
+val closureConvertRefactor = control {name = "closureConvertRefactor",
+                                      default = false,
+                                      toString = Bool.toString}
 
 val closureConvertShrink = control {name = "closureConvertShrink",
                                     default = true,
@@ -972,13 +984,6 @@ structure Native =
                            toString = Option.toString Int.toString}
    end
 
-val optimizationPasses:
-   {il: string, set: string -> unit Result.t, get: unit -> string} list ref =
-   control {name = "optimizationPasses",
-            default = [],
-            toString = List.toString 
-                       (fn {il,get,...} => concat ["<",il,"::",get (),">"])}
-
 val polyvariance =
    control {name = "polyvariance",
             default = SOME {hofo = true,
@@ -1095,6 +1100,13 @@ val showDefUse = control {name = "show def-use",
 val showTypes = control {name = "show types",
                          default = true,
                          toString = Bool.toString}
+
+val stopPasses =
+   control {name = "stop passes",
+            default = [],
+            toString = List.toString
+                       (Layout.toString o
+                        Regexp.Compiled.layout)}
 
 structure Target =
    struct

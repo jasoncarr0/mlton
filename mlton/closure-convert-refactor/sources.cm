@@ -1,0 +1,43 @@
+(* Copyright (C) 2016 Matthew Fluet.
+ * Copyright (C) 1999-2006 Henry Cejtin, Matthew Fluet, Suresh
+ *    Jagannathan, and Stephen Weeks.
+ * Copyright (C) 1997-2000 NEC Research Institute.
+ *
+ * MLton is released under a BSD-style license.
+ * See the file MLton-LICENSE for details.
+ *)
+
+Group
+
+functor ClosureConvertRefactor
+
+is
+
+../../lib/mlton/sources.cm
+../atoms/sources.cm
+../control/sources.cm
+../ssa/sources.cm
+../xml/sources.cm
+
+lambda-free.sig
+lambda-free.fun
+
+globalize.sig
+globalize.fun
+
+cfa.sig
+ty-cfa.fun
+synknown-cfa.fun
+intersect-cfa.fun
+abstract-value.sig
+abstract-value.fun
+orig-cfa.fun
+zero-cfa.fun
+m-cfa.fun
+
+transform.sig
+ty-transform.fun
+unif-transform.fun
+
+closure-convert.sig
+closure-convert.fun

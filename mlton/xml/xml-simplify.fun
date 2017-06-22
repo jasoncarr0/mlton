@@ -1,4 +1,5 @@
-(* Copyright (C) 1999-2006, 2008 Henry Cejtin, Matthew Fluet, Suresh
+(* Copyright (C) 2016 Matthew Fluet.
+ * Copyright (C) 1999-2006, 2008 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
@@ -71,8 +72,8 @@ val xmlPassesSet = fn s =>
                        ; Result.Yes ())
        | _ => xmlPassesSetCustom s
    end
-val _ = List.push (Control.optimizationPasses,
-                   {il = "xml", get = xmlPassesGet, set = xmlPassesSet})
+val _ = List.push (Control.indirectFlags,
+                   {flag = "xml-passes", get = xmlPassesGet, set = xmlPassesSet})
 
 fun pass ({name, doit}, p) =
    let

@@ -1,4 +1,4 @@
-(* Copyright (C) 2011,2014-2015 Matthew Fluet.
+(* Copyright (C) 2011,2014-2016 Matthew Fluet.
  * Copyright (C) 1999-2008 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
@@ -82,6 +82,8 @@ structure Monomorphise = Monomorphise (structure Xml = Xml
                                        structure Sxml = Sxml)
 structure ClosureConvert = ClosureConvert (structure Ssa = Ssa
                                            structure Sxml = Sxml)
+structure ClosureConvertRefactor = ClosureConvertRefactor (structure Ssa = Ssa
+                                                           structure Sxml = Sxml)
 structure SsaToSsa2 = SsaToSsa2 (structure Ssa = Ssa
                                  structure Ssa2 = Ssa2)
 structure Backend = Backend (structure Ssa = Ssa2
@@ -614,7 +616,9 @@ fun preCodegen {input: MLBString.t}: Machine.Program.t =
           stats = Ssa.Program.layoutStats,
           style = Control.No,
           suffix = "ssa",
-          thunk = fn () => ClosureConvert.closureConvert sxml,
+          thunk = fn () => if !Control.closureConvertRefactor
+                              then ClosureConvertRefactor.closureConvert sxml
+                              else ClosureConvert.closureConvert sxml,
           typeCheck = Ssa.typeCheck}
       val ssa =
          Control.passTypeCheck

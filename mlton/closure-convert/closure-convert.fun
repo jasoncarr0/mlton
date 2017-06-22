@@ -393,6 +393,59 @@ fun closureConvert
                                                   str " ",
                                                   Value.layout (value x)]
                                           end)))
+      val _ =
+         Control.diagnostics
+         (fn display =>
+          let
+             val _ =
+                Sxml.Exp.foreachPrimExp
+                (body, fn (res, _, exp) =>
+                 case exp of
+                    Sxml.PrimExp.App {func, arg} =>
+                       let
+                          val func = Sxml.VarExp.var func
+                          val arg = Sxml.VarExp.var arg
+                          val lambdas =
+                             case Value.dest (value func) of
+                                Value.Lambdas l =>
+                                   List.map
+                                   (Value.Lambdas.toList l, Value.Lambda.dest)
+                              | _ => Error.bug "ClosureConvert.lambdas: non-lambda"
+                          val lambdas =
+                             List.insertionSort
+                             (lambdas, fn (lam1, lam2) =>
+                              String.<= (Sxml.Var.toString (Sxml.Lambda.arg lam1),
+                                         Sxml.Var.toString (Sxml.Lambda.arg lam2)))
+                          val lambdasCard =
+                             Int.layout (List.length lambdas)
+                          fun layoutLam lam =
+                             Layout.seq
+                             [Layout.str "fn ",
+                              Sxml.Var.layout (Sxml.Lambda.arg lam)]
+                          val lambdas =
+                             Layout.seq [Layout.str "{",
+                                         (Layout.fill o Layout.separateRight)
+                                         (List.map (lambdas, layoutLam), ","),
+                                         Layout.str "}"]
+                          val call =
+                             (Layout.str o String.concat)
+                             ["val ",
+                              Sxml.Var.toString res,
+                              " = ",
+                              Sxml.Var.toString func,
+                              " ",
+                              Sxml.Var.toString arg]
+                       in
+                          (display o Layout.seq)
+                          [Layout.str "|cfa(", call, Layout.str ")| = ", lambdasCard];
+                          (display o Layout.align)
+                          [Layout.seq [Layout.str "cfa(", call, Layout.str ") ="],
+                           Layout.indent (lambdas, 3)]
+                       end
+                  | _ => ())
+          in
+             ()
+          end)
       val overflow = valOf overflow
       val _ =
          Control.trace (Control.Pass, "free variables")

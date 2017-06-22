@@ -1,4 +1,4 @@
-(* Copyright (C) 2009 Matthew Fluet.
+(* Copyright (C) 2009,2016 Matthew Fluet.
  * Copyright (C) 1999-2007 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
@@ -30,9 +30,7 @@ signature DIRECT_EXP =
                        args: t vector,
                        overflow: t,
                        ty: Type.t} -> t
-           (* For now, call always uses Handler.None.  This means it should only
-            * be used for functions that cannot raise.
-            *)
+           val bug: string -> t
            val call: {func: Func.t, args: t vector, ty: Type.t} -> t
            val casee: {test: t, 
                        cases: cases,
@@ -74,6 +72,7 @@ signature DIRECT_EXP =
                         ty: Type.t} -> t
            val truee: t
            val tuple: {exps: t vector, ty: Type.t} -> t
+           val unit: t
            val var: Var.t * Type.t -> t
            val word: WordX.t -> t
         end

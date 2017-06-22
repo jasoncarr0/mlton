@@ -1,4 +1,5 @@
-(* Copyright (C) 1999-2008 Henry Cejtin, Matthew Fluet, Suresh
+(* Copyright (C) 2016 Matthew Fluet.
+ * Copyright (C) 1999-2008 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
@@ -102,8 +103,8 @@ val ssa2PassesSet = fn s =>
                        ; Result.Yes ())
        | _ => ssa2PassesSetCustom s
    end
-val _ = List.push (Control.optimizationPasses,
-                   {il = "ssa2", get = ssa2PassesGet, set = ssa2PassesSet})
+val _ = List.push (Control.indirectFlags,
+                   {flag = "ssa2-passes", get = ssa2PassesGet, set = ssa2PassesSet})
 
 fun pass ({name, doit, midfix}, p) =
    let

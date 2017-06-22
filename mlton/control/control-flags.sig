@@ -15,6 +15,9 @@ signature CONTROL_FLAGS =
       val all : unit -> {name: string, 
                          value: string} list
 
+      val indirectFlags:
+         {flag: string, set: string -> unit Result.t, get: unit -> string} list ref
+
       (*------------------------------------*)
       (*            Begin Flags             *)
       (*------------------------------------*)
@@ -32,6 +35,7 @@ signature CONTROL_FLAGS =
       val chunk: chunk ref
 
       val closureConvertGlobalize: bool ref
+      val closureConvertRefactor: bool ref
       val closureConvertShrink: bool ref
 
       structure Codegen:
@@ -295,9 +299,6 @@ signature CONTROL_FLAGS =
             val split: int option ref
          end
 
-      val optimizationPasses:
-         {il: string, set: string -> unit Result.t, get: unit -> string} list ref
-      
       val positionIndependent : bool ref
 
       (* Only duplicate big functions when
@@ -351,6 +352,9 @@ signature CONTROL_FLAGS =
 
       (* Should types be printed in ILs. *)
       val showTypes: bool ref
+
+      (* List of passes after which to stop. *)
+      val stopPasses: Regexp.Compiled.t list ref
 
       datatype target =
          Cross of string

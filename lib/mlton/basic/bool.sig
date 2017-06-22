@@ -1,4 +1,5 @@
-(* Copyright (C) 1999-2005 Henry Cejtin, Matthew Fluet, Suresh
+(* Copyright (C) 2016 Matthew Fluet.
+ * Copyright (C) 1999-2005 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  *
  * MLton is released under a BSD-style license.
@@ -14,5 +15,6 @@ signature BOOL =
       val fromString: string -> t option
       val layout: t -> Layout.t
       val not: t -> t
+      val scan: (char,'a) StringCvt.reader -> (t,'a) StringCvt.reader
       val toString: t -> string
    end where type t = bool

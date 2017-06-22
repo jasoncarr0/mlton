@@ -1,4 +1,5 @@
-(* Copyright (C) 1999-2008 Henry Cejtin, Matthew Fluet, Suresh
+(* Copyright (C) 2016 Matthew Fluet.
+ * Copyright (C) 1999-2008 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
@@ -144,8 +145,8 @@ val sxmlPassesSet = fn s =>
                        ; Result.Yes ())
        | _ => sxmlPassesSetCustom s
    end
-val _ = List.push (Control.optimizationPasses,
-                   {il = "sxml", get = sxmlPassesGet, set = sxmlPassesSet})
+val _ = List.push (Control.indirectFlags,
+                   {flag = "sxml-passes", get = sxmlPassesGet, set = sxmlPassesSet})
 
 fun pass ({name, doit}, p) =
    let

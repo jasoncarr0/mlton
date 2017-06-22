@@ -1,4 +1,4 @@
-(* Copyright (C) 2009 Matthew Fluet.
+(* Copyright (C) 2009,2016 Matthew Fluet.
  * Copyright (C) 2004-2006 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  *
@@ -109,6 +109,8 @@ in
       hash-set.sig
       hash-set.sml
       string.sml
+      scan.sig
+      scan.sml
       instream.sml
       file.sig
       file.sml
@@ -270,6 +272,7 @@ in
       structure Relation
       structure Result
       structure SMLofNJ
+      structure Scan
       structure Sexp
       structure Signal
       structure Stream

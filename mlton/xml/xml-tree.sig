@@ -146,14 +146,18 @@ signature XML_TREE =
             val decs: t -> Dec.t list
             val dest: t -> {decs: Dec.t list, result: VarExp.t}
             val enterLeave: t * Type.t * SourceInfo.t -> t
-            (* foreach {exp, handleExp, handleBoundVar, handleVarExp}
-             * applies handleExp to each subexpresison of e (including e)
+            (* foreach {exp, handleExp, handlePrimExp, handleBoundVar, handleVarExp}
+             * applies handleExp to each subexpression of e (including e)
+             * applies handlePrimExp to each primitive expression of e
+             * (including lambdas in Fun declarations)
              * applies handleBoundVar to each variable bound in e
              * applies handleVarExp to each variable expression in e
              * handleBoundVar will be called on a variable binding before
              * handleVarExp is called on any occurrences
              * handleExp is called on an expression after it is called on
              * all of its subexpressions
+             * handlePrimExp is called on a primitive expression before
+             * handleExp is called on any of its subexpressions
              *)
             val foreach:
                {exp: t,

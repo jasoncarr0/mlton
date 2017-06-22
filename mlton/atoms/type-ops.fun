@@ -1,4 +1,5 @@
-(* Copyright (C) 1999-2007 Henry Cejtin, Matthew Fluet, Suresh
+(* Copyright (C) 2016 Matthew Fluet.
+ * Copyright (C) 1999-2007 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
@@ -71,6 +72,7 @@ fun deUnary tycon t =
 val deArray = deUnary Tycon.array
 val deRef = deUnary Tycon.reff
 val deVector = deUnary Tycon.vector
+val deVectorOpt = deUnaryOpt Tycon.vector
 val deWeak = deUnary Tycon.weak
 
 fun tuple ts =
