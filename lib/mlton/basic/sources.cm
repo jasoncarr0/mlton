@@ -25,6 +25,8 @@ signature REAL
 signature RING
 signature RING_WITH_IDENTITY
 signature STRING
+signature STREAM
+signature STREAM_PARSER
 signature SUM
 signature T
 signature UNIQUE_ID
@@ -160,6 +162,7 @@ functor Pair
 functor PolyEnv
 functor Ring
 functor RingWithIdentity
+functor StreamParser
 functor Sum
 functor Tree
 functor UniqueId
@@ -269,6 +272,8 @@ scan.sml
 instream.sml
 file.sig
 file.sml
+stream-parser.sig
+stream-parser.fun
 signal.sml
 process.sig
 dir.sig

@@ -11,10 +11,12 @@ Group
 signature SXML
 signature XML
 signature XML_TYPE
+signature PARSE_SXML
 
 functor Monomorphise
 functor Xml
 functor Sxml
+functor ParseSxml
 
 is
 
@@ -50,3 +52,5 @@ sxml-simplify.sig
 sxml-simplify.fun
 sxml.sig
 sxml.fun
+parse-sxml.sig
+parse-sxml.fun

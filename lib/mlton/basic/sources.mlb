@@ -114,6 +114,8 @@ in
       instream.sml
       file.sig
       file.sml
+      stream-parser.sig
+      stream-parser.fun
       signal.sml
       process.sig
       dir.sig
@@ -200,6 +202,8 @@ in
       signature RING
       signature RING_WITH_IDENTITY
       signature STRING
+      signature STREAM
+      signature STREAM_PARSER
       signature T
       signature UNIQUE_ID
       signature VECTOR
@@ -302,6 +306,7 @@ in
       functor PolyEnv
       functor Ring
       functor RingWithIdentity
+      functor StreamParser
       functor Tree
       functor UniqueId
       functor UniqueSet

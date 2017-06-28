@@ -32,7 +32,7 @@ fun maybeConstrain (x, t) =
       open Layout
    in
       if !Control.showTypes
-         then seq [x, str ": ", Type.layout t]
+         then seq [x, str " : ", Type.layoutFormal t]
       else x
    end
 
@@ -42,7 +42,7 @@ in
    fun layoutTargs (ts: Type.t vector) =
       if !Control.showTypes
          andalso 0 < Vector.length ts
-         then list (Vector.toListMap (ts, Type.layout))
+         then list (Vector.toListMap (ts, Type.layoutFormal))
       else empty
 end
 
@@ -148,7 +148,7 @@ structure VarExp =
                     if Vector.isEmpty targs
                        then Var.layout var
                     else seq [Var.layout var, str " ",
-                              Vector.layout Type.layout targs]
+                              Vector.layout Type.layoutFormal targs]
                  end
          else Var.layout var
    end
@@ -210,11 +210,11 @@ in
       seq [Con.layout con,
            case arg of
               NONE => empty
-            | SOME t => seq [str " of ", Type.layout t]]
+            | SOME t => seq [str " of ", Type.layoutFormal t]]
    fun layoutTyvars ts =
       case Vector.length ts of
          0 => empty
-       | 1 => seq [Tyvar.layout (Vector.first ts), str " "]
+       | 1 => seq [str "(", Tyvar.layout (Vector.first ts), str ") "]
        | _ => seq [tuple (Vector.toListMap (ts, Tyvar.layout)), str " "]
    fun layoutDec d =
       case d of
@@ -250,7 +250,10 @@ in
       case e of
          App {arg, func} => seq [VarExp.layout func, str " ", VarExp.layout arg]
        | Case {test, cases, default} =>
-            align [seq [str "case ", VarExp.layout test, str " of"],
+            align [seq [str "case",
+                        case cases of Cases.Con  _ => empty
+                                    | Cases.Word (size, _) => str (WordSize.toString size),
+                        str " ", VarExp.layout test, str " of"],
                    Cases.layout (cases, layoutExp),
                    indent
                    (align
@@ -259,7 +262,8 @@ in
                       | SOME (e, _) => seq [str "_ => ", layoutExp e]],
                     2)]
        | ConApp {arg, con, targs, ...} =>
-            seq [Con.layout con,
+            seq [str "new ",
+                 Con.layout con,
                  layoutTargs targs,
                  case arg of
                     NONE => empty
@@ -268,22 +272,36 @@ in
        | Handle {catch, handler, try} =>
             align [layoutExp try,
                    seq [str "handle ",
-                        Var.layout (#1 catch),
+                        maybeConstrain (Var.layout (#1 catch), #2 catch),
                         str " => ", layoutExp handler]]
        | Lambda l => layoutLambda l
        | PrimApp {args, prim, targs} =>
-            seq [Prim.layout prim,
+            seq [str "prim ",
+                 Prim.layoutFull Type.layoutFormal prim,
                  layoutTargs targs,
                  str " ", tuple (Vector.toListMap (args, VarExp.layout))]
        | Profile e => ProfileExp.layout e
-       | Raise {exn, ...} => seq [str "raise ", VarExp.layout exn]
+       | Raise {exn, extend} =>
+            seq [str "raise ",
+                 str (if extend then "extend " else ""),
+                 VarExp.layout exn]
        | Select {offset, tuple} =>
             seq [str "#", Int.layout offset, str " ", VarExp.layout tuple]
-       | Tuple xs => tuple (Vector.toListMap (xs, VarExp.layout))
+       | Tuple xs => tuple (Vector.toList
+            (Vector.mapi(xs, fn (i, x) => seq
+            (* very specific case to prevent open comments *)
+                [str (if i = 0 andalso
+                        (case x of (VarExp.T {var, ...}) =>
+                           String.sub(Var.toString var, 0) = #"*")
+                      then " "
+                      else ""),
+                 VarExp.layout x])))
        | Var x => VarExp.layout x
-   and layoutLambda (Lam {arg, argType, body, ...}) =
-      align [seq [str "fn ", maybeConstrain (Var.layout arg, argType),
-                  str " =>"],
+   and layoutLambda (Lam {arg, argType, body, mayInline, ...}) =
+      align [seq [str "fn ",
+                  str (if not mayInline then "noinline " else ""),
+                  maybeConstrain (Var.layout arg, argType),
+                  str " => "],
              layoutExp body]
 
 end   

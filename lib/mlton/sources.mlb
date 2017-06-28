@@ -33,6 +33,8 @@ ann "forceUsed" in
       signature RING_WITH_IDENTITY
       signature SET
       signature STRING
+      signature STREAM
+      signature STREAM_PARSER
       signature T
       signature UNIQUE_ID
       signature VECTOR
@@ -145,6 +147,7 @@ ann "forceUsed" in
       functor Ring
       functor RingWithIdentity
       functor ThreePointLattice
+      functor StreamParser
       functor Tree
       functor TwoPointLattice
       functor UniqueId
