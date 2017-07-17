@@ -48,10 +48,7 @@ structure CoreML = CoreML (open Atoms
 structure Xml = Xml (open Atoms)
 structure Sxml = Sxml (open Xml)
 structure ParseSxml = ParseSxml(structure XmlTree = Xml
-                                structure Stream = Stream
-                                structure StreamParser =
-                                   StreamParser(structure Stream = Stream
-                                                structure File = File))
+                                structure StreamParser = StreamParser)
 structure Ssa = Ssa (open Atoms)
 structure Ssa2 = Ssa2 (open Atoms)
 structure Machine = Machine (open Atoms
@@ -825,18 +822,29 @@ in
       handle Done => ()
 end
 
-fun genFromSXML (input: char Stream.t): Machine.Program.t =
+fun genFromSXML (input: File.t): Machine.Program.t =
    let
       val _ = setupConstants()
-      val sxml = ParseSxml.parse(input)
-      (* can't quite run simplify twice *)
-      (*val sxml = simplifySxml sxml *)
-      open Control
-      val _ =
-         if !keepSXML
-            then saveToFile ({suffix = "sxml"}, No, sxml,
-               Layouts Sxml.Program.layouts)
-            else ()
+      val sxml =
+         Control.passTypeCheck
+         {display = Control.Layouts Sxml.Program.layouts,
+          name = "sxmlParse",
+          stats = Sxml.Program.layoutStats,
+          style = Control.ML,
+          suffix = "sxml",
+          thunk = (fn () =>
+                   File.withIn
+                   (input, fn i =>
+                    let
+                       fun toStream () =
+                          case In.inputChar i of
+                             SOME c => Stream.cons (c, Stream.delay toStream)
+                           | NONE => Stream.empty ()
+                    in
+                       ParseSxml.parse (toStream ())
+                    end)),
+          typeCheck = Sxml.typeCheck}
+      val sxml = simplifySxml sxml
       val ssa = makeSsa sxml
       val ssa = simplifySsa ssa
       val ssa2 = makeSsa2 ssa
@@ -844,17 +852,11 @@ fun genFromSXML (input: char Stream.t): Machine.Program.t =
    in
       makeMachine ssa2
    end
-fun compileSXML {input: File.t list, outputC, outputLL, outputS}: unit =
-   let
-      val inputs = case input of [i] => File.contents i
-                               | _ => ""
-      val stream = Stream.fromList (String.explode inputs)
-   in
-      compile {input = stream,
-               resolve = genFromSXML,
-               outputC = outputC,
-               outputLL = outputLL,
-               outputS = outputS}
-   end
+fun compileSXML {input: File.t, outputC, outputLL, outputS}: unit =
+   compile {input = input,
+            resolve = genFromSXML,
+            outputC = outputC,
+            outputLL = outputLL,
+            outputS = outputS}
 
 end

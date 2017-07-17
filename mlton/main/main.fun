@@ -16,8 +16,7 @@ structure Compile = Compile ()
 
 structure Place =
    struct
-      datatype t = Files | Generated | MLB | O | OUT | SML | TypeCheck | SXML
-
+      datatype t = Files | Generated | MLB | O | OUT | SML | SXML | TypeCheck
       val toInt: t -> int =
          fn MLB => 1
           | SML => 1
@@ -30,13 +29,13 @@ structure Place =
 
       val toString =
          fn Files => "files"
-          | SML => "sml"
-          | MLB => "mlb"
           | Generated => "g"
+          | MLB => "mlb"
           | O => "o"
           | OUT => "out"
+          | SML => "sml"
+          | SXML => "sxml"
           | TypeCheck => "tc"
-          | SXMl => "sxml"
 
       fun compare (p, p') = Int.compare (toInt p, toInt p')
    end
@@ -1592,7 +1591,7 @@ fun commandLine (args: string list): unit =
                                    elaborate = Compile.elaborateMLB,
                                    compile = Compile.compileMLB}
                   val compileSXML =
-                     mkCompileSrc {listFiles = fn {input} => Vector.fromList input,
+                     mkCompileSrc {listFiles = fn {input} => Vector.new1 input,
                                    elaborate = fn _ => raise Fail "Unimplemented",
                                    compile = Compile.compileSXML}
                   fun compile () =
@@ -1601,7 +1600,7 @@ fun commandLine (args: string list): unit =
                       | Place.MLB => compileMLB input
                       | Place.Generated => compileCSO (input :: csoFiles)
                       | Place.O => compileCSO (input :: csoFiles)
-                      | Place.SXML => compileSXML [input]
+                      | Place.SXML => compileSXML input
                       | _ => Error.bug "invalid start"
                   val doit
                     = trace (Top, "MLton")

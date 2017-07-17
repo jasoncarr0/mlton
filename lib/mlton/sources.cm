@@ -28,9 +28,9 @@ signature REAL
 signature RING
 signature RING_WITH_IDENTITY
 signature SET
-signature STRING
 signature STREAM
 signature STREAM_PARSER
+signature STRING
 signature SUM
 signature T
 signature UNIQUE_ID
@@ -130,6 +130,7 @@ structure SMLofNJ
 structure Scan
 structure Socket
 structure Stream
+structure StreamParser
 structure String
 structure StringCvt
 structure Substring
@@ -181,7 +182,6 @@ functor PowerSetLattice_UniqueSet
 functor Ring
 functor RingWithIdentity
 (* functor SplayMonoEnv *)
-functor StreamParser
 functor Sum
 functor ThreePointLattice
 functor Tree
