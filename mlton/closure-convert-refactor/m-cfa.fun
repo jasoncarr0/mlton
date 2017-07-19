@@ -331,7 +331,7 @@ fun cfa {config = Config.T {m}: Config.t} : t =
                 if Order.isFirstOrder (conOrder con)
                    then typeInfo ty
                    else AbsValSet.singleton (AbsVal.ConApp (ctxt, {con = con, arg = Option.map (arg, Sxml.VarExp.var)}))
-           | Sxml.PrimExp.Const c =>
+           | Sxml.PrimExp.Const _ =>
                 typeInfo ty
            | Sxml.PrimExp.Handle {try, catch = (var, _), handler} =>
                 let
@@ -359,13 +359,7 @@ fun cfa {config = Config.T {m}: Config.t} : t =
                    datatype z = datatype Sxml.Prim.Name.t
                    val _ =
                       case Sxml.Prim.name prim of
-                         Array_array =>
-                            let
-                               val pa = Proxy.new ()
-                            in
-                               AbsValSet.<< (AbsVal.Array pa, res)
-                            end
-                       | Array_array0Const =>
+                         Array_uninit =>
                             let
                                val pa = Proxy.new ()
                             in
@@ -434,6 +428,12 @@ fun cfa {config = Config.T {m}: Config.t} : t =
                              case v of
                                 AbsVal.Vector pv => AbsValSet.<= (proxyInfo pv, res)
                               | _ => bug ("Vector", v))
+                       | Vector_vector =>
+                            let
+                               val pa = Proxy.new ()
+                            in
+                               AbsValSet.<< (AbsVal.Vector pa, res)
+                            end
                        | _ =>
                             AbsValSet.<= (typeInfo ty, res)
                 in

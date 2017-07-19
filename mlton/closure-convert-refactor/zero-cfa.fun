@@ -355,9 +355,7 @@ fun cfa {config: Config.t}: t =
                    datatype z = datatype Sxml.Prim.Name.t
                 in
                    case Sxml.Prim.name prim of
-                      Array_array =>
-                         AbsVal.newArray (AbsVal.new ())
-                    | Array_array0Const =>
+                      Array_uninit =>
                          AbsVal.newArray (AbsVal.new ())
                     | Array_sub =>
                          let
@@ -445,6 +443,8 @@ fun cfa {config: Config.t}: t =
                          in
                             res
                          end
+                    | Vector_vector =>
+                         AbsVal.newArray (AbsVal.new ())
                     | _ =>
                          typeValue ty
                 end
