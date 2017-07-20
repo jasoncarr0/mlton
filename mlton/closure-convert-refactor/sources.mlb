@@ -29,6 +29,10 @@ local
    orig-cfa.fun
    zero-cfa.fun
    m-cfa.fun
+   allocator.sig
+   m-allocator.fun
+   gen-cfa.sig
+   gen-cfa.fun
 
    transform.sig
    ty-transform.fun

@@ -18,7 +18,10 @@ structure OrigCFA = OrigCFA(S)
 structure SynKnownCFA = SynKnownCFA(S)
 structure TyCFA = TyCFA(S)
 structure ZeroCFA = ZeroCFA(S)
-structure mCFA = mCFA(S)
+structure mCFA = GenCFA(struct
+                           structure Sxml = Sxml
+                           structure Alloc = MAllocator(S)
+                        end)
 val cfaRef = ref (fn _ => Error.bug "ClosureConvert.cfa unset")
 val cfaString = ref "<cfa>"
 val cfaGet = fn () => !cfaString
