@@ -148,7 +148,6 @@ ann "forceUsed" in
       functor Ring
       functor RingWithIdentity
       functor ThreePointLattice
-      functor StreamParser
       functor Tree
       functor TwoPointLattice
       functor UniqueId
