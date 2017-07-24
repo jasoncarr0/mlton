@@ -5,15 +5,19 @@ open S
 structure Addr =
 struct
    type t = (Sxml.Var.t * Sxml.Lambda.t list)
-   fun layout _ = Layout.str "m-addr"
+   fun layout (_, c) = Layout.list (List.map(c, Sxml.Lambda.layout))
    fun equals ((v1, c1), (v2, c2)) = 
       Sxml.Var.equals (v1, v2) andalso
       List.equals(c1, c2, Sxml.Lambda.equals)   
+   fun hash (v, c) = Sxml.Var.hash v + 0w17 *
+      List.fold(c, 0w0, fn (lam, last) =>
+         case Sxml.Lambda.arg lam of
+             v => Sxml.Var.hash v + 0w17 * last)
 end
 structure Inst =
 struct
    type t = (int * Sxml.Lambda.t list)
-   fun layout _ = Layout.str "ctxt"
+   fun layout (_, c) = Layout.list (List.map(c, Sxml.Lambda.layout))
    fun equals ((m1, c1), (m2, c2)) =
       List.equals(c1, c2, Sxml.Lambda.equals)
 end

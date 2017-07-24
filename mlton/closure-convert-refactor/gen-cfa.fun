@@ -467,12 +467,11 @@ val _ =
             [Proxy.layout p, Layout.str ": ", AbsValSet.layout (proxyInfo p)]);
            Sxml.Exp.foreachBoundVar
            (body, fn (x, _, _) =>
-           display (Layout.str "Not implemented")
-            (*List.foreach (!(varInfo x), fn (ctxt, v) =>
+            List.foreach (allVarInfo x, fn (addr, v) =>
             (display o Layout.seq)
             [Sxml.Var.layout x, Layout.str " @ ",
-             Config.layout ctxt, Layout.str " : ", 
-             AbsValSet.layout(v, (Config.layout))])*))))
+             Addr.layout addr, Layout.str " : ", 
+             AbsValSet.layout v]))))
 
       val cfa : {arg: Sxml.Var.t,
                  argTy: Sxml.Type.t,

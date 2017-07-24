@@ -17,6 +17,7 @@ signature ALLOCATOR =
          sig
             type t
             val equals: t * t -> bool
+            val hash: t -> word
             val layout: t -> Layout.t
          end
       structure Inst:
