@@ -71,19 +71,17 @@ val cfa = fn config =>
    Control.trace (Control.Detail, "SynKnownCFA")
    (cfa config)
 
-fun scan scanCFARec charRdr strm0 =
-   case Scan.string "synkwn" charRdr strm0 of
-      SOME ((), strm1) =>
-         (case charRdr strm1 of
-             SOME (#"(", strm2) =>
-                (case scanCFARec charRdr strm2 of
-                    SOME (baseCFA, strm3) =>
-                       (case charRdr strm3 of
-                           SOME (#")", strm4) =>
-                              SOME (cfa {config = {baseCFA = baseCFA}}, strm4)
-                         | _ => NONE)
-                  | _ => NONE)
-           | _ => NONE)
-    | _ => NONE
-
+local
+   open Parse
+   infix 1 <|> >>=
+   infix 2 <&>
+   infix  3 <*> <* *>
+   infixr 4 <$> <$$> <$$$> <$
+   fun mkCfg t = {config = {baseCFA = t}} 
+in
+   fun scan scanRec =
+      str "synkwn(" *>
+      cfa <$> mkCfg <$> scanRec
+      <* str ")"
+end
 end

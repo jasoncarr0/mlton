@@ -108,7 +108,7 @@ structure AbsVal = AbstractValue
 structure AbstractValueSet = PowerSetLattice_ListSet(structure Element = AbstractValue)
 structure AbsValSet = AbstractValueSet
 
-fun cfa (config: Config.t)
+fun cfa {config: Config.t}
    (*config:{alloc: Sxml.Var.t * Inst.t -> 'b,
                 equals: Inst.t * Inst.t -> bool,
                 new: unit -> Inst.t, 
@@ -505,64 +505,16 @@ val cfa = fn config =>
    Control.trace (Control.Detail, "genCFA")
    (cfa config)
 
-fun scan _ charRdr strm0 =
-   let
-      fun mkNameArgScan (name, scanArg, updateConfig) (config: Config.t) strm0 =
-         case Scan.string (name ^ ":") charRdr strm0 of
-            SOME ((), strm1) =>
-               (case scanArg strm1 of
-                   SOME (arg, strm2) =>
-                      SOME (updateConfig arg, strm2)
-                 | _ => NONE)
-          | _ => NONE
-      val nameArgScans =
-         (mkNameArgScan ("m", Int.scan (StringCvt.DEC, charRdr), Config.fromN))::
-         nil
-
-      fun scanNameArgs (nameArgScans, config) strm =
-         case nameArgScans of
-            nameArgScan::nameArgScans =>
-               (case nameArgScan config strm of
-                   SOME (config', strm') =>
-                      (case nameArgScans of
-                          [] => (case charRdr strm' of
-                                    SOME (#")", strm'') => SOME (cfa config', strm'')
-                                  | _ => NONE)
-                        | _ => (case charRdr strm' of
-                                   SOME (#",", strm'') => scanNameArgs (nameArgScans, config') strm''
-                                 | _ => NONE))
-                 | _ => NONE)
-          | _ => NONE
-   in
-      case Scan.string "gencfa" charRdr strm0 of
-         SOME ((), strm1) =>
-            (case charRdr strm1 of
-                SOME (#"(", strm2) => scanNameArgs (nameArgScans, Config.fromN 0) strm2
-              | _ => NONE)
-       | _ => NONE
-   end
-
-(*
 local
-   structure T = StreamParser
-   open T.Ops
+   open Parse
    infix 1 <|> >>=
    infix 2 <&>
    infix  3 <*> <* *>
    infixr 4 <$> <$$> <$$$> <$
+   fun mkCfg c = {config=c}
 in
-fun scan _ charRdr strm0 = T.parse (T.optional (cfa <$> (
-      T.string "gencfa(" *>
-      (T.any 
-         [mAlloc <$> (T.string "m:" *> String.implode <$> T.many(T.sat(T.next, Char.isDigit)))])
-      <* T.char #")"
-   )), raise Fail "") handle Fail _ => NONE
-  (* 
-   case Scan.string "alloccfa" charRdr strm0 of
-      SOME ((), strm1) => SOME (cfa {alloc = raise Fail ""}, strm1)
-    | _ => NONE*)
+fun scan _ = cfa <$> mkCfg <$> (str "gencfa(" *> Alloc.scan <* char #")")
 end
-   *)
 
 
 end

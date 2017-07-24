@@ -15,9 +15,6 @@ open S
 structure Config =
    struct
       datatype t = T of {reachabilityExt: bool}
-      val init = T {reachabilityExt = false}
-      fun updateReachabilityExt (T {...}: t, reachabilityExt) =
-         T {reachabilityExt = reachabilityExt}
    end
 
 type t = {program: Sxml.Program.t} ->
@@ -294,43 +291,19 @@ fun cfa {config: Config.t}: t =
 val cfa = fn config =>
    Control.trace (Control.Detail, "OrigCFA")
    (cfa config)
-
-fun scan _ charRdr strm0 =
-   let
-      fun mkNameArgScan (name, scanArg, updateConfig) (config: Config.t) strm0 =
-         case Scan.string (name ^ ":") charRdr strm0 of
-            SOME ((), strm1) =>
-               (case scanArg strm1 of
-                   SOME (arg, strm2) =>
-                      SOME (updateConfig (config, arg), strm2)
-                 | _ => NONE)
-          | _ => NONE
-      val nameArgScans =
-         (mkNameArgScan ("reach", Bool.scan charRdr, Config.updateReachabilityExt))::
-         nil
-
-      fun scanNameArgs (nameArgScans, config) strm =
-         case nameArgScans of
-            nameArgScan::nameArgScans =>
-               (case nameArgScan config strm of
-                   SOME (config', strm') =>
-                      (case nameArgScans of
-                          [] => (case charRdr strm' of
-                                    SOME (#")", strm'') =>
-                                       SOME (cfa {config = config'}, strm'')
-                                  | _ => NONE)
-                        | _ => (case charRdr strm' of
-                                   SOME (#",", strm'') => scanNameArgs (nameArgScans, config') strm''
-                                 | _ => NONE))
-                 | _ => NONE)
-          | _ => NONE
-   in
-      case Scan.string "ocfa" charRdr strm0 of
-         SOME ((), strm1) =>
-            (case charRdr strm1 of
-                SOME (#"(", strm2) => scanNameArgs (nameArgScans, Config.init) strm2
-              | _ => NONE)
-       | _ => NONE
-   end
-
+local
+   open Parse
+   infix 1 <|> >>=
+   infix 2 <&>
+   infix  3 <*> <* *>
+   infixr 4 <$> <$$> <$$$> <$
+   fun mkCfg reach = {config = Config.T {reachabilityExt = reach}}
+in
+   fun scan _ = cfa <$> mkCfg <$> (
+      str "ocfa(" *>
+         str "reach:" *> 
+            (true <$ str "true" <|>
+             false <$ str "false") <*
+         str ")")
+end
 end

@@ -28,7 +28,6 @@ signature ALLOCATOR =
       structure Config:
          sig
             type t
-            val fromN: int -> t
          end
       val new: Config.t -> Inst.t
       val postBind: Inst.t * Sxml.Var.t -> Inst.t
@@ -40,4 +39,5 @@ signature ALLOCATOR =
                         {get: Addr.t -> 'a,
                          coalesce: Sxml.Var.t -> (Addr.t * 'a) list,
                          destroy: Sxml.Var.t -> unit}
+      val scan: Config.t Parse.t
    end

@@ -25,40 +25,27 @@ structure mCFA = GenCFA(struct
 val cfaRef = ref (fn _ => Error.bug "ClosureConvert.cfa unset")
 val cfaString = ref "<cfa>"
 val cfaGet = fn () => !cfaString
-val cfaSet =
-   let
-      val cfaRdrs =
-         IntersectCFA.scan ::
-         OrigCFA.scan ::
-         SynKnownCFA.scan ::
-         TyCFA.scan ::
-         ZeroCFA.scan ::
-         mCFA.scan ::
-         nil
+local
+   fun set string cfa = 
+         (cfaRef := cfa;
+         cfaString := string)
+   open Parse
+   infix 1 <|> >>=
+   infix 2 <&>
+   infix  3 <*> <* *>
+   infixr 4 <$> <$$> <$$$> <$
 
-      fun cfaRdrRec charRdr strm0 =
-         let
-            fun loop cfaRdrs =
-               case cfaRdrs of
-                  [] => NONE
-                | cfaRdr::cfaRdrs =>
-                     (case cfaRdr cfaRdrRec charRdr strm0 of
-                         NONE => loop cfaRdrs
-                       | SOME (cfa, strm') => SOME (cfa, strm'))
-         in
-            loop cfaRdrs
-         end
-   in
-      fn s =>
-      case cfaRdrRec Substring.getc (Substring.full s) of
-         NONE => Result.No s
-       | SOME (cfa, ss') =>
-            if Substring.isEmpty ss'
-               then (cfaRef := cfa;
-                     cfaString := s;
-                     Result.Yes ())
-               else Result.No s
-   end
+   fun cfaRdrs () = any (List.map (
+      [IntersectCFA.scan,
+       SynKnownCFA.scan,
+       mCFA.scan,
+       TyCFA.scan,
+       ZeroCFA.scan,
+       OrigCFA.scan], 
+      fn f => f (delay cfaRdrs)))
+in
+   fun cfaSet s = parseString(set s <$> (cfaRdrs () <* failing next), s)
+end
 val _ = List.push (Control.indirectFlags, {flag = "cc-cfa", get = cfaGet, set = cfaSet})
 val _ = cfaSet "synkwn(tycfa)"
 

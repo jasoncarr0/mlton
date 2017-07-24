@@ -20,7 +20,6 @@ end
 structure Config = 
 struct
    type t = int
-   fun fromN i = i
 end
 
 
@@ -58,5 +57,6 @@ fun store {empty: (Sxml.Var.t * Sxml.Lambda.t list) -> 'a} =
    in
       {get=get, destroy=rem, coalesce=coalesce}
    end
-              
+
+val scan = Parse.*> (Parse.str "m:", Parse.uint)
 end

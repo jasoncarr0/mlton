@@ -63,9 +63,13 @@ val cfa = fn config =>
    Control.trace (Control.Detail, "TyCFA")
    (cfa config)
 
-fun scan _ charRdr strm0 =
-   case Scan.string "tycfa" charRdr strm0 of
-      SOME ((), strm1) => SOME (cfa {config = ()}, strm1)
-    | _ => NONE
-
+local 
+   open Parse
+   infix 1 <|> >>=
+   infix 2 <&>
+   infix  3 <*> <* *>
+   infixr 4 <$> <$$> <$$$> <$
+in
+   fun scan _ = cfa <$> ({config=()} <$ Parse.str "tycfa")
+end
 end

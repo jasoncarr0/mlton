@@ -665,10 +665,9 @@ open S
 structure AbstractValueRep =
    struct
       datatype t = PowerSetLattice_ListSet | PowerSetLattice_UniqueSet
-      fun scan charRdr strm =
-         Scan.first [Scan.stringAs ("psl_ls", PowerSetLattice_ListSet),
-                     Scan.stringAs ("psl_us", PowerSetLattice_UniqueSet)]
-                    charRdr strm
+      val scan = Parse.any
+         [Parse.<$ (PowerSetLattice_ListSet, Parse.str "psl_ls"),
+          Parse.<$ (PowerSetLattice_UniqueSet, Parse.str "psl_us")]
    end
 structure Config =
    struct
@@ -832,44 +831,22 @@ fun cfa {config: Config.t}: t =
             end
    end
 
-fun scan _ charRdr strm0 =
-   let
-      fun mkNameArgScan (name, scanArg, updateConfig) (config: Config.t) strm0 =
-         case Scan.string (name ^ ":") charRdr strm0 of
-            SOME ((), strm1) =>
-               (case scanArg strm1 of
-                   SOME (arg, strm2) =>
-                      SOME (updateConfig (config, arg), strm2)
-                 | _ => NONE)
-          | _ => NONE
-      val nameArgScans =
-         (mkNameArgScan ("avr", AbstractValueRep.scan charRdr, Config.updateAbstractValueRep))::
-         (mkNameArgScan ("fo", Bool.scan charRdr, Config.updateFirstOrderOpt))::
-         (mkNameArgScan ("reach", Bool.scan charRdr, Config.updateReachabilityExt))::
-         nil
-
-      fun scanNameArgs (nameArgScans, config) strm =
-         case nameArgScans of
-            nameArgScan::nameArgScans =>
-               (case nameArgScan config strm of
-                   SOME (config', strm') =>
-                      (case nameArgScans of
-                          [] => (case charRdr strm' of
-                                    SOME (#")", strm'') =>
-                                       SOME (cfa {config = config'}, strm'')
-                                  | _ => NONE)
-                        | _ => (case charRdr strm' of
-                                   SOME (#",", strm'') => scanNameArgs (nameArgScans, config') strm''
-                                 | _ => NONE))
-                 | _ => NONE)
-          | _ => NONE
-   in
-      case Scan.string "0cfa" charRdr strm0 of
-         SOME ((), strm1) =>
-            (case charRdr strm1 of
-                SOME (#"(", strm2) => scanNameArgs (nameArgScans, Config.init) strm2
-              | _ => NONE)
-       | _ => NONE
-   end
-
+local
+   open Parse
+   infix 1 <|> >>=
+   infix 2 <&>
+   infix  3 <*> <* *>
+   infixr 4 <$> <$$> <$$$> <$
+   val bool = 
+      true <$ str "true" <|>
+      false <$ str "false"
+   fun mkCfg (avr, fo, reach) = {config = Config.T 
+      {abstractValueRep = avr, firstOrderOpt = fo, reachabilityExt = reach}}
+in
+   fun scan _ = cfa <$> mkCfg <$$$>
+      (str "0cfa(" *>
+         str "avr:" *> AbstractValueRep.scan,
+         str "fo:" *> bool,
+         str "reach:" *> bool)
+end
 end

@@ -29,7 +29,5 @@ signature CFA =
 
       val cfa: {config: Config.t} -> t
 
-      val scan: ((char, 'a) StringCvt.reader -> (t, 'a) StringCvt.reader) ->
-                (char, 'a) StringCvt.reader ->
-                (t, 'a) StringCvt.reader
-   end
+      val scan: t Parse.t -> t Parse.t 
+end

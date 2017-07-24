@@ -63,25 +63,16 @@ val cfa = fn config =>
    Control.trace (Control.Detail, "IntersectCFA")
    (cfa config)
 
-fun scan scanCFARec charRdr strm0 =
-   let
-      fun loop (strm, baseCFAs) =
-         case scanCFARec charRdr strm of
-            SOME (baseCFA, strm') =>
-               (case charRdr strm' of
-                   SOME (#",", strm'') =>
-                      loop (strm'', baseCFA::baseCFAs)
-                 | SOME (#")", strm'') =>
-                      SOME (cfa {config = {baseCFAs = List.rev (baseCFA::baseCFAs)}}, strm'')
-                 | _ => NONE)
-          | NONE => NONE
-   in
-      case Scan.string "isect" charRdr strm0 of
-         SOME ((), strm1) =>
-            (case charRdr strm1 of
-                SOME (#"(", strm2) => loop (strm2, [])
-              | _ => NONE)
-       | _ => NONE
-   end
-
+local
+   open Parse
+   infix 1 <|> >>=
+   infix 2 <&>
+   infix  3 <*> <* *>
+   infixr 4 <$> <$$> <$$$> <$
+   fun mkCfg t = {config = {baseCFAs = Vector.toList t}} 
+in
+   fun scan scanRec =
+      str "isect" *>
+      cfa <$> mkCfg <$> tuple scanRec
+end
 end
