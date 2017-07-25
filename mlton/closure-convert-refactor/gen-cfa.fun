@@ -54,10 +54,10 @@ structure AbstractValue =
       datatype t =
          Array of Proxy.t
        | Base of Sxml.Type.t
-       | ConApp of Inst.t * {con: Sxml.Con.t, arg: Sxml.Var.t option}
-       | Lambda of Inst.t * Sxml.Lambda.t
+       | ConApp of (Sxml.Var.t * Addr.t) list * {con: Sxml.Con.t, arg: Sxml.Var.t option}
+       | Lambda of (Sxml.Var.t * Addr.t) list * Sxml.Lambda.t
        | Ref of Proxy.t
-       | Tuple of Inst.t * Sxml.Var.t vector
+       | Tuple of (Sxml.Var.t * Addr.t) vector
        | Vector of Proxy.t
        | Weak of Proxy.t
 
@@ -65,17 +65,15 @@ structure AbstractValue =
          case (e, e') of
             (Array p, Array p') => Proxy.equals (p, p')
           | (Base ty, Base ty') => Sxml.Type.equals (ty, ty')
-          | (ConApp (inst, {con = con, arg = arg}), ConApp (inst', {con = con', arg = arg'})) =>
-               Inst.equals (inst, inst') andalso
+          | (ConApp (_, {con = con, arg = arg}), ConApp (_, {con = con', arg = arg'})) =>
                Sxml.Con.equals (con, con') andalso
                Option.equals (arg, arg', Sxml.Var.equals)
-          | (Lambda (inst, lam), Lambda (inst', lam')) =>
-               Inst.equals (inst, inst') andalso
+          | (Lambda (_, lam), Lambda (_, lam')) =>
                Sxml.Lambda.equals (lam, lam')
           | (Ref p, Ref p') => Proxy.equals (p, p')
-          | (Tuple (inst, xs), Tuple (inst', xs')) =>
-               Inst.equals (inst, inst') andalso
-               Vector.equals (xs, xs', Sxml.Var.equals)
+          | (Tuple xs, Tuple xs') =>
+               Vector.equals (xs, xs', fn ((x1, a1), (x2, a2)) => 
+                  Sxml.Var.equals (x1, x2) andalso Addr.equals (a1, a2))
           | (Vector p, Vector p') => Proxy.equals (p, p')
           | (Weak p, Weak p') => Proxy.equals (p, p')
           | _ => false
@@ -91,13 +89,10 @@ structure AbstractValue =
                                                  case arg of
                                                     NONE => empty
                                                   | SOME arg => seq [str " ",
-                                                                     Sxml.Var.layout arg],
-                                                 str " @ ", Inst.layout inst]
-             | Lambda (inst, lam) => seq [str "fn ", Sxml.Var.layout (Sxml.Lambda.arg lam),
-                                          str " @ ", Inst.layout inst]
+                                                                     Sxml.Var.layout arg]]
+             | Lambda (inst, lam) => seq [str "fn ", Sxml.Var.layout (Sxml.Lambda.arg lam)]
              | Ref p => seq [str "Ref ", Proxy.layout p]
-             | Tuple (inst, xs) => seq [tuple (Vector.toListMap (xs, Sxml.Var.layout)),
-                                        str " @ ", Inst.layout inst]
+             | Tuple xs => seq [tuple (Vector.toListMap (xs, fn (x, _) => Sxml.Var.layout x))]
              | Vector p => seq [str "Vector ", Proxy.layout p]
              | Weak p => seq [str "Weak ", Proxy.layout p]
          end
@@ -192,36 +187,65 @@ fun cfa {config: Config.t}
       val {freeVars, freeRecVars, destroy = destroyLambdaFree} =
          LambdaFree.lambdaFree {program = program}
       fun varExpValue(ve, ctxt) = varValue (Sxml.VarExp.var ve, ctxt)
-      fun loopExp (ctxt: Inst.t, exp: Sxml.Exp.t): AbsValSet.t =
+
+      (* List set is likely the best choice here since we can share some data *)
+      (* Shadow when we have distinct addresses *)
+      fun envAdd (env, v1, addr1) = if List.exists (env, 
+         fn (v2, addr2) => Sxml.Var.equals(v1, v2) andalso Addr.equals(addr1, addr2)) 
+         then env (* exact copy, skip *)
+         else (v1, addr1) :: env (* add a copy on, shadowing the previous *)
+      fun envGet (env, v1) = case List.peek (env, fn (v2, _) => Sxml.Var.equals(v1, v2)) of
+            SOME (_, addr) => addr
+          | NONE => Error.bug (Layout.toString (Layout.seq 
+               [Layout.str "envGet ",
+               Sxml.Var.layout v1,
+               Layout.str " against ",
+               Layout.list (List.map (env, fn (v, a) => Layout.seq 
+                  [Sxml.Var.layout v,
+                   Layout.str "@",
+                   Addr.layout a]))]))
+      val envValue = varInfo o envGet
+      type env = (Sxml.Var.t * Addr.t) list
+
+      fun loopExp (ctxt: Inst.t, env, exp: Sxml.Exp.t): AbsValSet.t =
          let
             val {decs, result} = Sxml.Exp.dest exp
-            val _ = List.fold (decs, ctxt, fn (dec, ctxt) => loopDec (ctxt, dec))
+            val _ = List.fold (decs, (ctxt, env), 
+               fn (dec, (ctxt, env)) => loopDec (ctxt, env, dec))
          in
             varExpValue(result, ctxt)
          end
-      and loopExp' (ctxt: Inst.t, exp: Sxml.Exp.t): unit = ignore (loopExp (ctxt, exp))
-      and loopDec (ctxt: Inst.t, dec: Sxml.Dec.t): Inst.t =
+      and loopExp' (ctxt: Inst.t, env, exp: Sxml.Exp.t): unit = ignore (loopExp (ctxt, env, exp))
+      and loopDec (ctxt: Inst.t, env, dec: Sxml.Dec.t): (Inst.t * env) =
          (case dec of
             Sxml.Dec.Fun {decs, ...} =>
-               Vector.fold
-               (decs, ctxt, fn ({var, lambda, ...}, ctxt) => 
                let
-                  val _ = AbsValSet.<< (AbsVal.Lambda (ctxt, lambda), varValue(var, ctxt)) 
-                in
-                   Alloc.postBind (ctxt, var)
-                end)
-           | Sxml.Dec.MonoVal bind => loopBind (ctxt, bind)
+                  val env = Vector.fold(decs, env, fn ({var, ...}, env) =>
+                     (var, Alloc.alloc (var, ctxt)) :: env)
+                  val nctxt = Vector.fold
+                  (decs, ctxt, fn ({var, lambda, ...}, ctxt) => 
+                  let
+                     val addr = envGet (env, var)
+                     val nctxt = Alloc.preEval (ctxt, Sxml.PrimExp.Lambda lambda)
+                     val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda), varInfo addr)
+                   in
+                      (Alloc.postBind (ctxt, var))
+                   end)
+               in
+                  (nctxt, env)
+               end
+           | Sxml.Dec.MonoVal bind => loopBind (ctxt, env, bind)
            | _ => Error.bug "mCFA.loopDec: strange dec")
-      and loopBind (ctxt, bind as {var, ...}): Inst.t = 
+      and loopBind (ctxt, env, bind as {var, exp, ...}): (Inst.t * env) = 
          let
-            val _ = AbsValSet.<= (loopPrimExp (ctxt, bind), varValue(var, ctxt))
-         in
-            Alloc.postBind (ctxt, var)
-         end
-      and loopPrimExp (ctxt, {var: Sxml.Var.t, ty: Sxml.Type.t, exp: Sxml.PrimExp.t, ...}): AbsValSet.t =
-         let
+            val addr = Alloc.alloc (var, ctxt)
             val nctxt = Alloc.preEval (ctxt, exp)
+            val _ = AbsValSet.<= (loopPrimExp (nctxt, env, bind), varValue(var, ctxt))
+            val env' = (var, addr) :: env
          in
+            (Alloc.postBind (ctxt, var), env')
+         end
+      and loopPrimExp (ctxt, env, {var: Sxml.Var.t, ty: Sxml.Type.t, exp: Sxml.PrimExp.t, ...}): AbsValSet.t =
          (case exp of
              Sxml.PrimExp.App {func, arg} =>
                 let
@@ -229,34 +253,35 @@ fun cfa {config: Config.t}
                    val _ = AbsValSet.addHandler
                            (varExpValue(func, ctxt), fn v =>
                             case v of
-                               AbsVal.Lambda (ctxt', lambda') =>
+                               AbsVal.Lambda (env', lambda') =>
                                   let
                                      val {arg = arg', body = body', ...} = Sxml.Lambda.dest lambda'
 
                                      val _ =
                                         Vector.foreach
                                         (freeVars lambda', fn x =>
-                                         AbsValSet.<= (varValue (x, ctxt'),
-                                                       varValue(x, nctxt)))
+                                         AbsValSet.<= (envValue (env', x),
+                                                       varValue(x, ctxt)))
                                      val _ =
                                         Vector.foreach
                                         (freeRecVars lambda', fn f =>
-                                         AbsValSet.<= (varValue(f, ctxt'),
-                                                       varValue(f, nctxt)))
-val _ =
+                                         AbsValSet.<= (envValue (env', f),
+                                                       varValue(f, ctxt)))
+                                     val argAddr = Alloc.alloc(arg', ctxt)
+                                     val _ =
                                         AbsValSet.<=
-                                        (varExpValue(arg, ctxt),
-                                         varValue(arg', nctxt))
+                                        (envValue (env, (Sxml.VarExp.var arg)),
+                                         varInfo argAddr)
 
                                      val _ =
-                                        if List.contains (!(lambdaInfo lambda'), nctxt, Inst.equals)
+                                        if List.contains (!(lambdaInfo lambda'), ctxt, Inst.equals)
                                            then ()
-                                           else (List.push (lambdaInfo lambda', nctxt);
-                                                 loopExp' (nctxt, body'))
+                                           else (List.push (lambdaInfo lambda', ctxt);
+                                                 loopExp' (ctxt, (arg', argAddr)::env', body'))
 
                                      val _ =
                                         AbsValSet.<=
-                                        (varExpValue (Sxml.Exp.result body', nctxt),
+                                        (varExpValue (Sxml.Exp.result body', ctxt),
                                          res)
                                   in
                                      ()
@@ -270,65 +295,71 @@ val _ =
                    val res = AbsValSet.empty ()
                    val _ =
                       case cases of
-                         Sxml.Cases.Con cases =>
-                            let
-                               val cases =
-                                  Vector.map
-                                  (cases, fn (Sxml.Pat.T {con, arg, ...}, _) =>
-                                   {con = con, arg = arg})
-                            in
-                               Vector.foreach
-                               (cases, fn {con, arg} =>
-                                if Order.isFirstOrder (conOrder con)
-                                   then Option.foreach (arg, fn (arg, ty) =>
-                                      AbsValSet.<= (typeInfo ty, varValue(arg, ctxt)))
-                                   else ());
-                               AbsValSet.addHandler
+                         Sxml.Cases.Con cases => 
+                         let
+                            val _ = AbsValSet.addHandler
                                (varExpValue(test, ctxt), fn v =>
                                 case v of
-                                   AbsVal.ConApp (ctxt', {con = con', arg = arg'}) =>
-                                      (case Vector.peek (cases, fn {con, ...} =>
+                                   AbsVal.ConApp (env', {con = con', arg = arg'}) =>
+                                      (case Vector.peek (cases, fn (Sxml.Pat.T {con, ...}, _) =>
                                           Sxml.Con.equals (con, con')) of
-                                          SOME {arg, ...} =>
+                                          SOME (Sxml.Pat.T {arg, ...}, _) =>
                                              (case (arg', arg) of
                                                  (NONE, NONE) => ()
                                                | (SOME arg', SOME (arg, _)) =>
-                                                    AbsValSet.<= 
-                                                      (varValue(arg', ctxt'), varValue(arg, ctxt))
+                                                    let
+                                                       val _ = AbsValSet.<= 
+                                                      (envValue (env', arg'), varValue (arg, ctxt))
+                                                    in
+                                                       ()
+                                                    end
                                                | _ => Error.bug "mCFA.loopPrimExp: Case")
                                         | NONE => ())
                                  | AbsVal.Base _ => ()
                                  | _ => Error.bug "mCFA.loopPrimExp: non-con")
-                            end
-                       | Sxml.Cases.Word _ => ()
-                   val _ =
-                      Sxml.Cases.foreach
-                      (cases, fn exp =>
-                       AbsValSet.<= (loopExp (ctxt, exp), res))
+                            val _ = Vector.foreach (cases, fn (Sxml.Pat.T {con, arg, ...}, exp) =>
+                               let
+                                  val _ = if Order.isFirstOrder (conOrder con)
+                                   then Option.foreach (arg, fn (arg, ty) =>
+                                      AbsValSet.<= (typeInfo ty, varValue(var, ctxt)))
+                                   else ();
+                                  val env' = case arg of 
+                                      NONE => env
+                                    | SOME (var, _) => (var, Alloc.alloc(var, ctxt)) :: env
+                               in
+                                  AbsValSet.<= (loopExp (ctxt, env', exp), res)
+                               end)
+                         in
+                            ()
+                         end
+                       | Sxml.Cases.Word _ => 
+                            Sxml.Cases.foreach (cases, fn exp => 
+                               AbsValSet.<= (loopExp (ctxt, env, exp), res))
                    val _ =
                       Option.foreach
                       (default, fn (exp, _) =>
-                       AbsValSet.<= (loopExp (ctxt, exp), res))
+                       AbsValSet.<= (loopExp (ctxt, env, exp), res))
                 in
                    res
                 end
            | Sxml.PrimExp.ConApp {con, arg, ...} =>
                 if Order.isFirstOrder (conOrder con)
                    then typeInfo ty
-                   else AbsValSet.singleton (AbsVal.ConApp (ctxt, {con = con, arg = Option.map (arg, Sxml.VarExp.var)}))
+                   else AbsValSet.singleton (AbsVal.ConApp (env, {con = con, arg = Option.map (arg, Sxml.VarExp.var)}))
            | Sxml.PrimExp.Const c =>
                 typeInfo ty
            | Sxml.PrimExp.Handle {try, catch = (var, _), handler} =>
                 let
                    val res = AbsValSet.empty ()
-                   val _ = AbsValSet.<= (loopExp (ctxt, try), res)
-                   val _ = AbsValSet.<= (proxyInfo exnProxy, varValue(var, ctxt))
-                   val _ = AbsValSet.<= (loopExp (ctxt, handler), res)
+                   val _ = AbsValSet.<= (loopExp (ctxt, env, try), res)
+                   val addr = Alloc.alloc (var, ctxt)
+                   val _ = AbsValSet.<= (proxyInfo exnProxy, varInfo addr)
+                   val _ = AbsValSet.<= (loopExp (ctxt, (var, addr) :: env, handler), res)
                 in
                    res
                 end
            | Sxml.PrimExp.Lambda lambda =>
-                AbsValSet.singleton (AbsVal.Lambda (ctxt, lambda))
+                AbsValSet.singleton (AbsVal.Lambda (env, lambda))
            | Sxml.PrimExp.PrimApp {prim, targs, args, ...} =>
                 if Vector.forall (targs, fn ty => Order.isFirstOrder (typeOrder ty))
                    then typeInfo ty
@@ -441,8 +472,8 @@ val _ =
                            val _ = AbsValSet.addHandler
                                    (varExpValue(tuple, ctxt), fn v =>
                                     case v of
-                                       AbsVal.Tuple (ctxt', xs') =>
-                                          AbsValSet.<= (varValue (Vector.sub (xs', offset), ctxt'), res)
+                                       AbsVal.Tuple xs' =>
+                                          AbsValSet.<= (varInfo (#2 (Vector.sub (xs', offset))), res)
                                      | _ => Error.bug "mCFA.loopPrimExp: non-tuple")
                         in
                            res
@@ -450,13 +481,14 @@ val _ =
            | Sxml.PrimExp.Tuple xs =>
                 if Order.isFirstOrder (typeOrder ty)
                    then typeInfo ty
-                   else AbsValSet.singleton (AbsVal.Tuple (ctxt, Vector.map (xs, Sxml.VarExp.var)))
+                   else AbsValSet.singleton (AbsVal.Tuple (Vector.map (xs, 
+                     fn v => (Sxml.VarExp.var v, envGet(env, Sxml.VarExp.var v)))))
            | Sxml.PrimExp.Var x =>
-                varExpValue(x, ctxt))
-         end
+                varExpValue(x, ctxt)
+                )
 
 
-      val _ = loopExp' (Alloc.new config, body)
+      val _ = loopExp' (Alloc.new config, [], body)
 
       val _ =
          Control.diagnostics
