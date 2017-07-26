@@ -55,7 +55,6 @@ structure Proxy :>
       type t
       val all: unit -> t list
       val equals: t * t -> bool
-      val hash: t -> Word.t
       val layout: t -> Layout.t
       val new: unit -> t
       val plist: t -> PropertyList.t
@@ -64,7 +63,6 @@ structure Proxy :>
       type t = Sxml.Var.t
       val all : t list ref = ref []
       val equals = Sxml.Var.equals
-      val hash = Sxml.Var.hash
       val layout = Sxml.Var.layout
       val new = fn () => let val p = Sxml.Var.newString "p"
                          in List.push (all, p); p
@@ -524,7 +522,7 @@ local
    infixr 4 <$> <$$> <$$$> <$
    fun mkCfg m = {config = Config.T {m = m}} 
 in
-   fun scan scanRec =
+   fun scan _ =
       str "mcfa(m:" *>
       cfa <$> mkCfg <$> uint
       <* str ")"

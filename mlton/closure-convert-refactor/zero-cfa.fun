@@ -674,21 +674,6 @@ structure Config =
       datatype t = T of {abstractValueRep: AbstractValueRep.t,
                          firstOrderOpt: bool,
                          reachabilityExt: bool}
-      val init = T {abstractValueRep = AbstractValueRep.PowerSetLattice_ListSet,
-                    firstOrderOpt = true,
-                    reachabilityExt = true}
-      fun updateAbstractValueRep (T {firstOrderOpt, reachabilityExt, ...}: t, abstractValueRep) =
-         T {abstractValueRep = abstractValueRep,
-            firstOrderOpt = firstOrderOpt,
-            reachabilityExt = reachabilityExt}
-      fun updateFirstOrderOpt (T {abstractValueRep, reachabilityExt, ...}: t, firstOrderOpt) =
-         T {abstractValueRep = abstractValueRep,
-            firstOrderOpt = firstOrderOpt,
-            reachabilityExt = reachabilityExt}
-      fun updateReachabilityExt (T {abstractValueRep, firstOrderOpt, ...}: t, reachabilityExt) =
-         T {abstractValueRep = abstractValueRep,
-            firstOrderOpt = firstOrderOpt,
-            reachabilityExt = reachabilityExt}
    end
 
 type t = {program: Sxml.Program.t} ->

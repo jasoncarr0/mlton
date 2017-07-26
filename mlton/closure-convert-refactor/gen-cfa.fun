@@ -85,12 +85,12 @@ structure AbstractValue =
             case e of
                Array p => seq [str "Array ", Proxy.layout p]
              | Base ty => seq [str "Base ", Sxml.Type.layout ty]
-             | ConApp (inst, {con, arg}) => seq [Sxml.Con.layout con,
+             | ConApp (_, {con, arg}) => seq [Sxml.Con.layout con,
                                                  case arg of
                                                     NONE => empty
                                                   | SOME arg => seq [str " ",
                                                                      Sxml.Var.layout arg]]
-             | Lambda (inst, lam) => seq [str "fn ", Sxml.Var.layout (Sxml.Lambda.arg lam)]
+             | Lambda (_, lam) => seq [str "fn ", Sxml.Var.layout (Sxml.Lambda.arg lam)]
              | Ref p => seq [str "Ref ", Proxy.layout p]
              | Tuple xs => seq [tuple (Vector.toListMap (xs, fn (x, _) => Sxml.Var.layout x))]
              | Vector p => seq [str "Vector ", Proxy.layout p]
@@ -190,10 +190,6 @@ fun cfa {config: Config.t}
 
       (* List set is likely the best choice here since we can share some data *)
       (* Shadow when we have distinct addresses *)
-      fun envAdd (env, v1, addr1) = if List.exists (env, 
-         fn (v2, addr2) => Sxml.Var.equals(v1, v2) andalso Addr.equals(addr1, addr2)) 
-         then env (* exact copy, skip *)
-         else (v1, addr1) :: env (* add a copy on, shadowing the previous *)
       fun envGet (env, v1) = case List.peek (env, fn (v2, _) => Sxml.Var.equals(v1, v2)) of
             SOME (_, addr) => addr
           | NONE => Error.bug (Layout.toString (Layout.seq 
@@ -230,7 +226,7 @@ fun cfa {config: Config.t}
                      val nctxt = Alloc.preEval (ctxt, Sxml.PrimExp.Lambda lambda)
                      val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda), varInfo addr)
                    in
-                      (Alloc.postBind (ctxt, var))
+                      (Alloc.postBind (nctxt, var))
                    end)
                in
                   (nctxt, env)
@@ -321,7 +317,7 @@ fun cfa {config: Config.t}
                             val _ = Vector.foreach (cases, fn (Sxml.Pat.T {con, arg, ...}, exp) =>
                                let
                                   val _ = if Order.isFirstOrder (conOrder con)
-                                   then Option.foreach (arg, fn (arg, ty) =>
+                                   then Option.foreach (arg, fn (var, ty) =>
                                       AbsValSet.<= (typeInfo ty, varValue(var, ctxt)))
                                    else ();
                                   val env' = case arg of 

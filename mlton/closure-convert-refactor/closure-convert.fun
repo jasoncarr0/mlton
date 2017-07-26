@@ -18,7 +18,8 @@ structure OrigCFA = OrigCFA(S)
 structure SynKnownCFA = SynKnownCFA(S)
 structure TyCFA = TyCFA(S)
 structure ZeroCFA = ZeroCFA(S)
-structure mCFA = GenCFA(struct
+structure mCFA = mCFA(S)
+structure AllocMCFA = GenCFA(struct
                            structure Sxml = Sxml
                            structure Alloc = MAllocator(S)
                         end)
