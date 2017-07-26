@@ -192,14 +192,7 @@ fun cfa {config: Config.t}
       (* Shadow when we have distinct addresses *)
       fun envGet (env, v1) = case List.peek (env, fn (v2, _) => Sxml.Var.equals(v1, v2)) of
             SOME (_, addr) => addr
-          | NONE => Error.bug (Layout.toString (Layout.seq 
-               [Layout.str "envGet ",
-               Sxml.Var.layout v1,
-               Layout.str " against ",
-               Layout.list (List.map (env, fn (v, a) => Layout.seq 
-                  [Sxml.Var.layout v,
-                   Layout.str "@",
-                   Addr.layout a]))]))
+          | NONE => Error.bug "envGet"
       val envValue = varInfo o envGet
       fun envExpValue (env, v) = envValue (env, Sxml.VarExp.var v)
       type env = (Sxml.Var.t * Addr.t) list
@@ -232,7 +225,7 @@ fun cfa {config: Config.t}
                   (nctxt, env)
                end
            | Sxml.Dec.MonoVal bind => loopBind (ctxt, env, bind)
-           | _ => Error.bug "mCFA.loopDec: strange dec")
+           | _ => Error.bug "allocCFA.loopDec: strange dec")
       and loopBind (ctxt, env, bind as {var, exp, ...}): (Inst.t * env) = 
          let
             val addr = Alloc.alloc (var, ctxt)
@@ -283,7 +276,7 @@ fun cfa {config: Config.t}
                                   in
                                      ()
                                   end
-                             | _ => Error.bug "mCFA.loopPrimExp: non-lambda")
+                             | _ => ())
                 in
                    res
                 end
@@ -310,10 +303,9 @@ fun cfa {config: Config.t}
                                                     in
                                                        ()
                                                     end
-                                               | _ => Error.bug "mCFA.loopPrimExp: Case")
+                                               | _ => Error.bug "allocCFA.loopPrimExp: Case")
                                         | NONE => ())
-                                 | AbsVal.Base _ => ()
-                                 | _ => Error.bug "mCFA.loopPrimExp: non-con")
+                                 | _ => ())
                             val _ = Vector.foreach (cases, fn (Sxml.Pat.T {con, arg, ...}, exp) =>
                                let
                                   val _ = if Order.isFirstOrder (conOrder con)
@@ -364,11 +356,6 @@ fun cfa {config: Config.t}
                 let
                    val res = AbsValSet.empty ()
                    fun arg i = envExpValue (env, Vector.sub (args, i))
-                   fun bug (k, v) =
-                      (Error.bug o String.concat)
-                      ["mCFA.loopPrimExp: non-", k,
-                       " (got ", Layout.toString (AbsVal.layout v),
-                       " for ",Sxml.Prim.Name.toString (Sxml.Prim.name prim), ")"]
                    datatype z = datatype Sxml.Prim.Name.t
                    val _ =
                       case Sxml.Prim.name prim of
@@ -383,13 +370,13 @@ fun cfa {config: Config.t}
                             (arg 0, fn v =>
                              case v of
                                 AbsVal.Array pa => AbsValSet.<= (proxyInfo pa, res)
-                              | _ => bug ("Array", v))
+                              | _ => ())
                        | Array_update =>
                             (AbsValSet.addHandler
                              (arg 0, fn v =>
                               case v of
                                  AbsVal.Array pa => AbsValSet.<= (arg 2, proxyInfo pa)
-                               | _ => bug ("Array", v));
+                               | _ => ());
                              AbsValSet.<= (typeInfo Sxml.Type.unit, res))
                        | Array_toVector =>
                             let
@@ -399,7 +386,7 @@ fun cfa {config: Config.t}
                                (arg 0, fn v =>
                                 case v of
                                    AbsVal.Array pa => AbsValSet.<= (proxyInfo pa, proxyInfo pv)
-                                 | _ => bug ("Array", v));
+                                 | _ => ());
                                AbsValSet.<< (AbsVal.Vector pv, res)
                             end
                        | Ref_assign =>
@@ -407,14 +394,14 @@ fun cfa {config: Config.t}
                              (arg 0, fn v =>
                               case v of
                                  AbsVal.Ref pr => AbsValSet.<= (arg 1, proxyInfo pr)
-                               | _ => bug ("Ref", v));
+                               | _ => ());
                              AbsValSet.<= (typeInfo Sxml.Type.unit, res))
                        | Ref_deref =>
                             AbsValSet.addHandler
                             (arg 0, fn v =>
                              case v of
                                 AbsVal.Ref pr => AbsValSet.<= (proxyInfo pr, res)
-                              | _ => bug ("Ref", v))
+                              | _ => ())
                        | Ref_ref =>
                             let
                                val pr = Proxy.new ()
@@ -434,13 +421,13 @@ fun cfa {config: Config.t}
                             (arg 0, fn v =>
                              case v of
                                 AbsVal.Weak pw => AbsValSet.<= (proxyInfo pw, res)
-                              | _ => bug ("Weak", v))
+                              | _ => ())
                        | Vector_sub =>
                             AbsValSet.addHandler
                             (arg 0, fn v =>
                              case v of
                                 AbsVal.Vector pv => AbsValSet.<= (proxyInfo pv, res)
-                              | _ => bug ("Vector", v))
+                              | _ => ())
                        | Vector_vector =>
                             let
                                val pa = Proxy.new ()
@@ -471,7 +458,7 @@ fun cfa {config: Config.t}
                                     case v of
                                        AbsVal.Tuple xs' =>
                                           AbsValSet.<= (varInfo (#2 (Vector.sub (xs', offset))), res)
-                                     | _ => Error.bug "mCFA.loopPrimExp: non-tuple")
+                                     | _ => ())
                         in
                            res
                         end
