@@ -1,4 +1,4 @@
-functor GenCFA(S: GEN_CFA_STRUCTS) = 
+functor AllocCFA(S: ALLOC_CFA_STRUCTS) = 
 struct
 
 open S
@@ -343,7 +343,7 @@ fun cfa {config: Config.t}
                 if Order.isFirstOrder (conOrder con)
                    then typeInfo ty
                    else AbsValSet.singleton (AbsVal.ConApp (env, {con = con, arg = Option.map (arg, Sxml.VarExp.var)}))
-           | Sxml.PrimExp.Const c =>
+           | Sxml.PrimExp.Const _ =>
                 typeInfo ty
            | Sxml.PrimExp.Handle {try, catch = (var, _), handler} =>
                 let
@@ -532,7 +532,7 @@ fun cfa {config: Config.t}
       {cfa = cfa, destroy = destroy}
    end
 val cfa = fn config =>
-   Control.trace (Control.Detail, "genCFA")
+   Control.trace (Control.Detail, "allocCFA")
    (cfa config)
 
 local
@@ -543,7 +543,7 @@ local
    infixr 4 <$> <$$> <$$$> <$
    fun mkCfg c = {config=c}
 in
-fun scan _ = cfa <$> mkCfg <$> (str "gencfa(" *> Alloc.scan <* char #")")
+fun scan _ = cfa <$> mkCfg <$> (str "alloc(" *> Alloc.scan <* char #")")
 end
 
 

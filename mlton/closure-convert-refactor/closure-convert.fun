@@ -19,7 +19,7 @@ structure SynKnownCFA = SynKnownCFA(S)
 structure TyCFA = TyCFA(S)
 structure ZeroCFA = ZeroCFA(S)
 structure mCFA = mCFA(S)
-structure AllocMCFA = GenCFA(struct
+structure AllocMCFA = AllocCFA(struct
                            structure Sxml = Sxml
                            structure Alloc = MAllocator(S)
                         end)
@@ -39,6 +39,7 @@ local
    fun cfaRdrs () = any (List.map (
       [IntersectCFA.scan,
        SynKnownCFA.scan,
+       AllocMCFA.scan,
        mCFA.scan,
        TyCFA.scan,
        ZeroCFA.scan,

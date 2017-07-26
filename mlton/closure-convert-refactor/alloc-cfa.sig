@@ -1,4 +1,4 @@
-signature GEN_CFA_STRUCTS =
+signature ALLOC_CFA_STRUCTS =
 sig
    structure Sxml: SXML
    structure Alloc: ALLOCATOR

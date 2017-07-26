@@ -31,8 +31,8 @@ local
    m-cfa.fun
    allocator.sig
    m-allocator.fun
-   gen-cfa.sig
-   gen-cfa.fun
+   alloc-cfa.sig
+   alloc-cfa.fun
 
    transform.sig
    ty-transform.fun
