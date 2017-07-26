@@ -4,22 +4,21 @@ open S
 
 structure Addr =
 struct
-   type t = (Sxml.Var.t * Sxml.Lambda.t list)
-   fun layout (_, c) = Layout.list (List.map(c, Sxml.Lambda.layout))
+   type t = (Sxml.Var.t * Sxml.Var.t list)
+   fun layout (_, c) = Layout.list (List.map(c, Sxml.Var.layout))
    fun equals ((v1, c1), (v2, c2)) = 
       Sxml.Var.equals (v1, v2) andalso
-      List.equals(c1, c2, Sxml.Lambda.equals)   
+      List.equals(c1, c2, Sxml.Var.equals)
    fun hash (v, c) = Sxml.Var.hash v + 0w17 *
-      List.fold(c, 0w0, fn (lam, last) =>
-         case Sxml.Lambda.arg lam of
-             v => Sxml.Var.hash v + 0w17 * last)
+      List.fold(c, 0w0, fn (var, last) =>
+         Sxml.Var.hash v + 0w17 * last)
 end
 structure Inst =
 struct
-   type t = (int * Sxml.Lambda.t list)
-   fun layout (_, c) = Layout.list (List.map(c, Sxml.Lambda.layout))
+   type t = (int * Sxml.Var.t list)
+   fun layout (_, c) = Layout.list (List.map(c, Sxml.Var.layout))
    fun equals ((m1, c1), (m2, c2)) =
-      List.equals(c1, c2, Sxml.Lambda.equals)
+      List.equals(c1, c2, Sxml.Var.equals)
 end
 structure Config = 
 struct
@@ -28,19 +27,20 @@ end
 
 
 fun alloc (var, (_, ctxt)) = (var, ctxt) (* discard m *)
-fun equals ((_, ctxt), (_, ctxt')) = List.equals(ctxt, ctxt', Sxml.Lambda.equals)
+fun equals ((_, ctxt), (_, ctxt')) = List.equals(ctxt, ctxt', Sxml.Var.equals)
 fun new m = (m,[])
 fun preEval ((m, ctxt), exp) = (case exp of
-                  Sxml.PrimExp.Lambda lam => let
-                     in (m, List.firstN (lam :: ctxt, m) handle
-                        _ => lam :: ctxt)
+                  Sxml.PrimExp.App {func, ...} => let
+                     val var = Sxml.VarExp.var func
+                     in (m, List.firstN (var :: ctxt, m) handle
+                        _ => var :: ctxt)
                      end
                 | _ => (m, ctxt))
-fun layout (_, ctxt) = Layout.list (List.map(ctxt, Sxml.Lambda.layout))
+fun layout (_, ctxt) = Layout.list (List.map(ctxt, Sxml.Var.layout))
 fun postBind (inst, _) = inst
-fun store {empty: (Sxml.Var.t * Sxml.Lambda.t list) -> 'a} =
+fun store {empty: (Sxml.Var.t * Sxml.Var.t list) -> 'a} =
    let
-      val {get = getList: Sxml.Var.t -> (Sxml.Lambda.t list * 'a) list ref,
+      val {get = getList: Sxml.Var.t -> (Sxml.Var.t list * 'a) list ref,
            rem = rem} =
              Property.get
              (Sxml.Var.plist,
@@ -50,7 +50,7 @@ fun store {empty: (Sxml.Var.t * Sxml.Lambda.t list) -> 'a} =
             val ctxts = getList var
          in
             case List.peek (!ctxts, 
-               fn (ctxt', _) => List.equals (ctxt, ctxt', Sxml.Lambda.equals)) of
+               fn (ctxt', _) => List.equals (ctxt, ctxt', Sxml.Var.equals)) of
                   SOME (_, v) => v
                 | NONE => let val v = empty (var, ctxt)
                      in List.push (ctxts, (ctxt, v)); v 
