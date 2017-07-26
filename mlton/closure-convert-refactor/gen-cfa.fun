@@ -205,6 +205,7 @@ fun cfa {config: Config.t}
                    Layout.str "@",
                    Addr.layout a]))]))
       val envValue = varInfo o envGet
+      fun envExpValue (env, v) = envValue (env, Sxml.VarExp.var v)
       type env = (Sxml.Var.t * Addr.t) list
 
       fun loopExp (ctxt: Inst.t, env, exp: Sxml.Exp.t): AbsValSet.t =
@@ -251,7 +252,7 @@ fun cfa {config: Config.t}
                 let
                    val res = AbsValSet.empty ()
                    val _ = AbsValSet.addHandler
-                           (varExpValue(func, ctxt), fn v =>
+                           (envExpValue (env, func), fn v =>
                             case v of
                                AbsVal.Lambda (env', lambda') =>
                                   let
@@ -298,7 +299,7 @@ fun cfa {config: Config.t}
                          Sxml.Cases.Con cases => 
                          let
                             val _ = AbsValSet.addHandler
-                               (varExpValue(test, ctxt), fn v =>
+                               (envExpValue (env, test), fn v =>
                                 case v of
                                    AbsVal.ConApp (env', {con = con', arg = arg'}) =>
                                       (case Vector.peek (cases, fn (Sxml.Pat.T {con, ...}, _) =>
@@ -366,7 +367,7 @@ fun cfa {config: Config.t}
                 else
                 let
                    val res = AbsValSet.empty ()
-                   fun arg i = varExpValue (Vector.sub (args, i), ctxt)
+                   fun arg i = envExpValue (env, Vector.sub (args, i))
                    fun bug (k, v) =
                       (Error.bug o String.concat)
                       ["mCFA.loopPrimExp: non-", k,
@@ -460,7 +461,7 @@ fun cfa {config: Config.t}
                 typeInfo ty
            | Sxml.PrimExp.Raise {exn, ...} =>
                 let
-                   val _ = AbsValSet.<= (varExpValue(exn, ctxt), proxyInfo exnProxy)
+                   val _ = AbsValSet.<= (envExpValue (env, exn), proxyInfo exnProxy)
                 in
                    AbsValSet.empty ()
                 end
@@ -470,7 +471,7 @@ fun cfa {config: Config.t}
                    else let
                            val res = AbsValSet.empty ()
                            val _ = AbsValSet.addHandler
-                                   (varExpValue(tuple, ctxt), fn v =>
+                                   (envExpValue (env, tuple), fn v =>
                                     case v of
                                        AbsVal.Tuple xs' =>
                                           AbsValSet.<= (varInfo (#2 (Vector.sub (xs', offset))), res)
@@ -484,7 +485,7 @@ fun cfa {config: Config.t}
                    else AbsValSet.singleton (AbsVal.Tuple (Vector.map (xs, 
                      fn v => (Sxml.VarExp.var v, envGet(env, Sxml.VarExp.var v)))))
            | Sxml.PrimExp.Var x =>
-                varExpValue(x, ctxt)
+                envExpValue (env, x)
                 )
 
 
@@ -512,12 +513,14 @@ fun cfa {config: Config.t}
                  resTy: Sxml.Type.t} ->
                 Sxml.Lambda.t list =
          fn {func, ...} =>
-            List.concatMap (allVarInfo func, 
+            List.removeDuplicates
+            (List.concatMap (allVarInfo func,
                fn (_, s) => 
                   List.keepAllMap(AbsValSet.getElements s, fn absVal =>
                      case absVal of 
                         AbsVal.Lambda (_, lam) => SOME lam
-                      | _ => NONE))
+                      | _ => NONE)),
+             Sxml.Lambda.equals)
          
       val destroy = fn () =>
          (destroyConOrder ();
