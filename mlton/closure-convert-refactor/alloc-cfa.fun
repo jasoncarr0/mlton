@@ -55,7 +55,7 @@ structure AbstractValue =
          Array of Proxy.t
        | Base of Sxml.Type.t
        | ConApp of (Sxml.Var.t * Addr.t) list * {con: Sxml.Con.t, arg: Sxml.Var.t option}
-       | Lambda of (Sxml.Var.t * Addr.t) list * Sxml.Lambda.t
+       | Lambda of (Sxml.Var.t * Addr.t) list * Sxml.Lambda.t * Sxml.Type.t
        | Ref of Proxy.t
        | Tuple of (Sxml.Var.t * Addr.t) vector
        | Vector of Proxy.t
@@ -68,7 +68,7 @@ structure AbstractValue =
           | (ConApp (_, {con = con, arg = arg}), ConApp (_, {con = con', arg = arg'})) =>
                Sxml.Con.equals (con, con') andalso
                Option.equals (arg, arg', Sxml.Var.equals)
-          | (Lambda (_, lam), Lambda (_, lam')) =>
+          | (Lambda (_, lam, _), Lambda (_, lam', _)) =>
                Sxml.Lambda.equals (lam, lam')
           | (Ref p, Ref p') => Proxy.equals (p, p')
           | (Tuple xs, Tuple xs') =>
@@ -90,7 +90,7 @@ structure AbstractValue =
                                                     NONE => empty
                                                   | SOME arg => seq [str " ",
                                                                      Sxml.Var.layout arg]]
-             | Lambda (_, lam) => seq [str "fn ", Sxml.Var.layout (Sxml.Lambda.arg lam)]
+             | Lambda (_, lam, _) => seq [str "fn ", Sxml.Var.layout (Sxml.Lambda.arg lam)]
              | Ref p => seq [str "Ref ", Proxy.layout p]
              | Tuple xs => seq [tuple (Vector.toListMap (xs, fn (x, _) => Sxml.Var.layout x))]
              | Vector p => seq [str "Vector ", Proxy.layout p]
@@ -188,6 +188,10 @@ fun cfa {config: Config.t}
          LambdaFree.lambdaFree {program = program}
       fun varExpValue(ve, ctxt) = varValue (Sxml.VarExp.var ve, ctxt)
 
+      fun compatibleLambda(ty: Sxml.Type.t, argTy: Sxml.Type.t, resTy: Sxml.Type.t) =
+         (* we really need more machinery to check result types *)
+            (* or go through the entire program *)
+         Sxml.Type.equals(Sxml.Type.arrow(argTy, resTy), ty)
       (* List set is likely the best choice here since we can share some data *)
       (* Shadow when we have distinct addresses *)
       fun envGet (env, v1) = case List.peek (env, fn (v2, _) => Sxml.Var.equals(v1, v2)) of
@@ -213,11 +217,11 @@ fun cfa {config: Config.t}
                   val env = Vector.fold(decs, env, fn ({var, ...}, env) =>
                      (var, Alloc.alloc (var, ctxt)) :: env)
                   val nctxt = Vector.fold
-                  (decs, ctxt, fn ({var, lambda, ...}, ctxt) => 
+                  (decs, ctxt, fn ({var, lambda, ty}, ctxt) => 
                   let
                      val addr = envGet (env, var)
                      val nctxt = Alloc.preEval (ctxt, Sxml.PrimExp.Lambda lambda)
-                     val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda), varInfo addr)
+                     val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda, ty), varInfo addr)
                    in
                       (Alloc.postBind (nctxt, var))
                    end)
@@ -235,7 +239,7 @@ fun cfa {config: Config.t}
          in
             (Alloc.postBind (ctxt, var), env')
          end
-      and loopPrimExp (ctxt, env, {var: Sxml.Var.t, ty: Sxml.Type.t, exp: Sxml.PrimExp.t, ...}): AbsValSet.t =
+      and loopPrimExp (ctxt, env, {exp: Sxml.PrimExp.t, ty: Sxml.Type.t, ...}): AbsValSet.t =
          (case exp of
              Sxml.PrimExp.App {func, arg} =>
                 let
@@ -243,10 +247,15 @@ fun cfa {config: Config.t}
                    val _ = AbsValSet.addHandler
                            (envExpValue (env, func), fn v =>
                             case v of
-                               AbsVal.Lambda (env', lambda') =>
+                               AbsVal.Lambda (env', lambda', lamty) =>
+                                  if not (
+                                    case Sxml.Type.deArrow lamty of (_, res) => Sxml.Type.equals (res, ty) 
+                                                         | _ => false)
+                                        then ()
+                                  else
                                   let
                                      val {arg = arg', body = body', ...} = Sxml.Lambda.dest lambda'
-
+                                     
                                      val _ =
                                         Vector.foreach
                                         (freeVars lambda', fn x =>
@@ -348,7 +357,7 @@ fun cfa {config: Config.t}
                    res
                 end
            | Sxml.PrimExp.Lambda lambda =>
-                AbsValSet.singleton (AbsVal.Lambda (env, lambda))
+                AbsValSet.singleton (AbsVal.Lambda (env, lambda, ty))
            | Sxml.PrimExp.PrimApp {prim, targs, args, ...} =>
                 if Vector.forall (targs, fn ty => Order.isFirstOrder (typeOrder ty))
                    then typeInfo ty
@@ -489,19 +498,23 @@ fun cfa {config: Config.t}
              Addr.layout addr, Layout.str " : ", 
              AbsValSet.layout v]))))
 
+         
+
       val cfa : {arg: Sxml.Var.t,
                  argTy: Sxml.Type.t,
                  func: Sxml.Var.t,
                  res: Sxml.Var.t,
                  resTy: Sxml.Type.t} ->
                 Sxml.Lambda.t list =
-         fn {func, ...} =>
+         fn {func, argTy, resTy, ...} =>
             List.removeDuplicates
             (List.concatMap (allVarInfo func,
                fn (_, s) => 
                   List.keepAllMap(AbsValSet.getElements s, fn absVal =>
                      case absVal of 
-                        AbsVal.Lambda (_, lam) => SOME lam
+                        AbsVal.Lambda (_, lam, ty) => if compatibleLambda(ty, argTy, resTy) 
+                        then SOME lam
+                        else NONE
                       | _ => NONE)),
              Sxml.Lambda.equals)
          

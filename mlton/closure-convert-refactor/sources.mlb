@@ -31,6 +31,7 @@ local
    m-cfa.fun
    allocator.sig
    m-allocator.fun
+   uni-allocator.fun
    alloc-cfa.sig
    alloc-cfa.fun
 

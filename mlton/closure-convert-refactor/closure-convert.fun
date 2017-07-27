@@ -23,6 +23,10 @@ structure AllocMCFA = AllocCFA(struct
                            structure Sxml = Sxml
                            structure Alloc = MAllocator(S)
                         end)
+structure AllocUniCFA = AllocCFA(struct
+                           structure Sxml = Sxml
+                           structure Alloc = UniAllocator(S)
+                        end)
 val cfaRef = ref (fn _ => Error.bug "ClosureConvert.cfa unset")
 val cfaString = ref "<cfa>"
 val cfaGet = fn () => !cfaString
@@ -40,6 +44,7 @@ local
       [IntersectCFA.scan,
        SynKnownCFA.scan,
        AllocMCFA.scan,
+       AllocUniCFA.scan,
        mCFA.scan,
        TyCFA.scan,
        ZeroCFA.scan,
