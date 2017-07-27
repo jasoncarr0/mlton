@@ -4,8 +4,6 @@ struct
 open S
 open Alloc
 
-structure Config = Config
-
 type t = {program: Sxml.Program.t} ->
          {cfa: {arg: Sxml.Var.t,
                 argTy: Sxml.Type.t,
@@ -158,12 +156,30 @@ fun cfa {config: Config.t}
                             Order.<= (typeOrder ty, conOrder con));
             Order.<= (conOrder con, tyconOrder tycon))))
      
-      val {get = varInfo: Addr.t -> AbsValSet.t, 
-           coalesce = allVarInfo: Sxml.Var.t -> (Addr.t * AbsValSet.t) list,
-           destroy = remVarInfo} = 
-           Alloc.store {empty = fn _ => AbsValSet.empty ()}
-      fun varValue (var, ctxt) = 
-         varInfo (Alloc.alloc (var, ctxt))
+      val {get = addrInfo: Addr.t -> AbsValSet.t, 
+           destroy = destroyAddrInfo} = 
+           Addr.store {empty = fn _ => AbsValSet.empty ()}
+
+      val {get = varAddrs: Sxml.Var.t -> Addr.t HashSet.t,
+           destroy = destroyVarAddrs} =
+         Property.destGet
+         (Sxml.Var.plist,
+          Property.initFun (fn _ => HashSet.new {hash=Addr.hash}))
+
+      fun alloc (var, ctxt) = let
+         val addr = Addr.alloc (var, ctxt)
+      in
+         HashSet.lookupOrInsert
+         (varAddrs var, Addr.hash addr, 
+          fn addr' => Addr.equals (addr, addr'),
+          fn () => addr)
+      end
+
+      fun addrValue (var, ctxt) = 
+         addrInfo (alloc (var, ctxt))
+
+          
+
 
       val {get = proxyInfo: Proxy.t -> AbsValSet.t, ...} =
          Property.get
@@ -186,7 +202,7 @@ fun cfa {config: Config.t}
 
       val {freeVars, freeRecVars, destroy = destroyLambdaFree} =
          LambdaFree.lambdaFree {program = program}
-      fun varExpValue(ve, ctxt) = varValue (Sxml.VarExp.var ve, ctxt)
+      fun varExpValue(ve, ctxt) = addrValue (Sxml.VarExp.var ve, ctxt)
 
       fun compatibleLambda(ty: Sxml.Type.t, argTy: Sxml.Type.t, resTy: Sxml.Type.t) =
          (* we really need more machinery to check result types *)
@@ -197,7 +213,7 @@ fun cfa {config: Config.t}
       fun envGet (env, v1) = case List.peek (env, fn (v2, _) => Sxml.Var.equals(v1, v2)) of
             SOME (_, addr) => addr
           | NONE => Error.bug "envGet"
-      val envValue = varInfo o envGet
+      val envValue = addrInfo o envGet
       fun envExpValue (env, v) = envValue (env, Sxml.VarExp.var v)
       type env = (Sxml.Var.t * Addr.t) list
 
@@ -215,15 +231,15 @@ fun cfa {config: Config.t}
             Sxml.Dec.Fun {decs, ...} =>
                let
                   val env = Vector.fold(decs, env, fn ({var, ...}, env) =>
-                     (var, Alloc.alloc (var, ctxt)) :: env)
+                     (var, alloc (var, ctxt)) :: env)
                   val nctxt = Vector.fold
                   (decs, ctxt, fn ({var, lambda, ty}, ctxt) => 
                   let
                      val addr = envGet (env, var)
-                     val nctxt = Alloc.preEval (ctxt, Sxml.PrimExp.Lambda lambda)
-                     val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda, ty), varInfo addr)
+                     val nctxt = Inst.preEval (ctxt, Sxml.PrimExp.Lambda lambda)
+                     val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda, ty), addrInfo addr)
                    in
-                      (Alloc.postBind (nctxt, var))
+                      (Inst.postBind (nctxt, var))
                    end)
                in
                   (nctxt, env)
@@ -232,12 +248,12 @@ fun cfa {config: Config.t}
            | _ => Error.bug "allocCFA.loopDec: strange dec")
       and loopBind (ctxt, env, bind as {var, exp, ...}): (Inst.t * env) = 
          let
-            val addr = Alloc.alloc (var, ctxt)
-            val nctxt = Alloc.preEval (ctxt, exp)
-            val _ = AbsValSet.<= (loopPrimExp (nctxt, env, bind), varValue(var, ctxt))
+            val addr = alloc (var, ctxt)
+            val nctxt = Inst.preEval (ctxt, exp)
+            val _ = AbsValSet.<= (loopPrimExp (nctxt, env, bind), addrValue(var, ctxt))
             val env' = (var, addr) :: env
          in
-            (Alloc.postBind (ctxt, var), env')
+            (Inst.postBind (ctxt, var), env')
          end
       and loopPrimExp (ctxt, env, {exp: Sxml.PrimExp.t, ty: Sxml.Type.t, ...}): AbsValSet.t =
          (case exp of
@@ -249,8 +265,8 @@ fun cfa {config: Config.t}
                             case v of
                                AbsVal.Lambda (env', lambda', lamty) =>
                                   if not (
-                                    case Sxml.Type.deArrow lamty of (_, res) => Sxml.Type.equals (res, ty) 
-                                                         | _ => false)
+                                    (case Sxml.Type.deArrow lamty of 
+                                        (_, res) => Sxml.Type.equals (res, ty) ))
                                         then ()
                                   else
                                   let
@@ -260,17 +276,17 @@ fun cfa {config: Config.t}
                                         Vector.foreach
                                         (freeVars lambda', fn x =>
                                          AbsValSet.<= (envValue (env', x),
-                                                       varValue(x, ctxt)))
+                                                       addrValue(x, ctxt)))
                                      val _ =
                                         Vector.foreach
                                         (freeRecVars lambda', fn f =>
                                          AbsValSet.<= (envValue (env', f),
-                                                       varValue(f, ctxt)))
-                                     val argAddr = Alloc.alloc(arg', ctxt)
+                                                       addrValue(f, ctxt)))
+                                     val argAddr = alloc(arg', ctxt)
                                      val _ =
                                         AbsValSet.<=
                                         (envValue (env, (Sxml.VarExp.var arg)),
-                                         varInfo argAddr)
+                                         addrInfo argAddr)
 
                                      val _ =
                                         if List.contains (!(lambdaInfo lambda'), ctxt, Inst.equals)
@@ -308,7 +324,7 @@ fun cfa {config: Config.t}
                                                | (SOME arg', SOME (arg, _)) =>
                                                     let
                                                        val _ = AbsValSet.<= 
-                                                      (envValue (env', arg'), varValue (arg, ctxt))
+                                                      (envValue (env', arg'), addrValue (arg, ctxt))
                                                     in
                                                        ()
                                                     end
@@ -319,11 +335,11 @@ fun cfa {config: Config.t}
                                let
                                   val _ = if Order.isFirstOrder (conOrder con)
                                    then Option.foreach (arg, fn (var, ty) =>
-                                      AbsValSet.<= (typeInfo ty, varValue(var, ctxt)))
+                                      AbsValSet.<= (typeInfo ty, addrValue(var, ctxt)))
                                    else ();
                                   val env' = case arg of 
                                       NONE => env
-                                    | SOME (var, _) => (var, Alloc.alloc(var, ctxt)) :: env
+                                    | SOME (var, _) => (var, alloc(var, ctxt)) :: env
                                in
                                   AbsValSet.<= (loopExp (ctxt, env', exp), res)
                                end)
@@ -350,8 +366,8 @@ fun cfa {config: Config.t}
                 let
                    val res = AbsValSet.empty ()
                    val _ = AbsValSet.<= (loopExp (ctxt, env, try), res)
-                   val addr = Alloc.alloc (var, ctxt)
-                   val _ = AbsValSet.<= (proxyInfo exnProxy, varInfo addr)
+                   val addr = alloc (var, ctxt)
+                   val _ = AbsValSet.<= (proxyInfo exnProxy, addrInfo addr)
                    val _ = AbsValSet.<= (loopExp (ctxt, (var, addr) :: env, handler), res)
                 in
                    res
@@ -466,7 +482,7 @@ fun cfa {config: Config.t}
                                    (envExpValue (env, tuple), fn v =>
                                     case v of
                                        AbsVal.Tuple xs' =>
-                                          AbsValSet.<= (varInfo (#2 (Vector.sub (xs', offset))), res)
+                                          AbsValSet.<= (addrInfo (#2 (Vector.sub (xs', offset))), res)
                                      | _ => ())
                         in
                            res
@@ -481,7 +497,7 @@ fun cfa {config: Config.t}
                 )
 
 
-      val _ = loopExp' (Alloc.new config, [], body)
+      val _ = loopExp' (Inst.new config, [], body)
 
       val _ =
          Control.diagnostics
@@ -492,11 +508,11 @@ fun cfa {config: Config.t}
             [Proxy.layout p, Layout.str ": ", AbsValSet.layout (proxyInfo p)]);
            Sxml.Exp.foreachBoundVar
            (body, fn (x, _, _) =>
-            List.foreach (allVarInfo x, fn (addr, v) =>
+            List.foreach (HashSet.toList (varAddrs x), fn addr =>
             (display o Layout.seq)
             [Sxml.Var.layout x, Layout.str " @ ",
              Addr.layout addr, Layout.str " : ", 
-             AbsValSet.layout v]))))
+             AbsValSet.layout (addrInfo addr)]))))
 
          
 
@@ -508,9 +524,9 @@ fun cfa {config: Config.t}
                 Sxml.Lambda.t list =
          fn {func, argTy, resTy, ...} =>
             List.removeDuplicates
-            (List.concatMap (allVarInfo func,
-               fn (_, s) => 
-                  List.keepAllMap(AbsValSet.getElements s, fn absVal =>
+            (List.concatMap (HashSet.toList (varAddrs func),
+               fn s => 
+                  List.keepAllMap(AbsValSet.getElements (addrInfo s), fn absVal =>
                      case absVal of 
                         AbsVal.Lambda (_, lam, ty) => if compatibleLambda(ty, argTy, resTy) 
                         then SOME lam
@@ -523,9 +539,8 @@ fun cfa {config: Config.t}
           destroyTyconOrder ();
           destroyTypeOrder ();
           destroyLambdaFree ();
-          Sxml.Exp.foreachBoundVar
-          (body, fn (var, _, _) =>
-           remVarInfo var);
+          destroyAddrInfo ();
+          destroyVarAddrs ();
           destroyTypeInfo ();
           destroyLambdaInfo ())
    in
@@ -543,7 +558,7 @@ local
    infixr 4 <$> <$$> <$$$> <$
    fun mkCfg c = {config=c}
 in
-fun scan _ = cfa <$> mkCfg <$> (str "alloc(" *> Alloc.scan <* char #")")
+fun scan _ = cfa <$> mkCfg <$> (str "alloc(" *> Config.scan <* char #")")
 end
 
 
