@@ -30,6 +30,7 @@ local
    zero-cfa.fun
    m-cfa.fun
    allocator.sig
+   hash-allocator.fun
    m-allocator.fun
    uni-allocator.fun
    alloc-cfa.sig

@@ -192,7 +192,7 @@ fun cfa {config: Config.t}
          (Sxml.Type.plist,
           Property.initFun (AbsValSet.singleton o AbsVal.Base))
 
-      val {get = lambdaInfo: Sxml.Lambda.t -> Inst.t list ref,
+      val {get = lambdaInfo: Sxml.Lambda.t -> (Inst.t * AbsValSet.t option) list ref,
            destroy = destroyLambdaInfo} =
          Property.destGet
          (Sxml.Lambda.plist,
@@ -220,10 +220,11 @@ fun cfa {config: Config.t}
       fun loopExp (ctxt: Inst.t, env, exp: Sxml.Exp.t): AbsValSet.t =
          let
             val {decs, result} = Sxml.Exp.dest exp
-            val _ = List.fold (decs, (ctxt, env), 
+            val resultVar = Sxml.VarExp.var result
+            val (_, env') = List.fold (decs, (ctxt, env),
                fn (dec, (ctxt, env)) => loopDec (ctxt, env, dec))
          in
-            varExpValue(result, ctxt)
+            envValue(env', resultVar)
          end
       and loopExp' (ctxt: Inst.t, env, exp: Sxml.Exp.t): unit = ignore (loopExp (ctxt, env, exp))
       and loopDec (ctxt: Inst.t, env, dec: Sxml.Dec.t): (Inst.t * env) =
@@ -288,16 +289,24 @@ fun cfa {config: Config.t}
                                         (envValue (env, (Sxml.VarExp.var arg)),
                                          addrInfo argAddr)
 
-                                     val _ =
-                                        if List.contains (!(lambdaInfo lambda'), ctxt, Inst.equals)
-                                           then ()
-                                           else (List.push (lambdaInfo lambda', ctxt);
-                                                 loopExp' (ctxt, (arg', argAddr)::env', body'))
-
-                                     val _ =
-                                        AbsValSet.<=
-                                        (varExpValue (Sxml.Exp.result body', ctxt),
-                                         res)
+                                     val resVal =
+                                        (case List.peek (!(lambdaInfo lambda'),
+                                           fn (ctxt', _) => Inst.equals (ctxt, ctxt'))
+                                        of
+                                           SOME (_, SOME v1) => v1
+                                         | SOME (_, NONE) => res (* instrumentation is deterministic *)
+                                         | NONE =>
+                                              let
+                                                 val _ = List.push (lambdaInfo lambda', (ctxt, NONE))
+                                                 val v1 = loopExp (ctxt, (arg', argAddr)::env', body')
+                                                 val _ = lambdaInfo lambda' := List.map (!(lambdaInfo lambda'),
+                                                    fn (ctxt', x) => if Inst.equals (ctxt, ctxt')
+                                                       then (ctxt', SOME v1)
+                                                    else (ctxt', x))
+                                              in
+                                                 v1
+                                              end)
+                                     val _ = AbsValSet.<= (resVal, res)
                                   in
                                      ()
                                   end
