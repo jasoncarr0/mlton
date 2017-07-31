@@ -29,7 +29,6 @@ type t = {program: Sxml.Program.t} ->
       type t
       val all: unit -> t list
       val equals: t * t -> bool
-      val hash: t -> Word.t
       val layout: t -> Layout.t
       val new: unit -> t
       val plist: t -> PropertyList.t
@@ -38,7 +37,6 @@ type t = {program: Sxml.Program.t} ->
       type t = Sxml.Var.t
       val all : t list ref = ref []
       val equals = Sxml.Var.equals
-      val hash = Sxml.Var.hash
       val layout = Sxml.Var.layout
       val new = fn () => let val p = Sxml.Var.newString "p"
                          in List.push (all, p); p
@@ -100,17 +98,7 @@ structure AbsVal = AbstractValue
 structure AbstractValueSet = PowerSetLattice_ListSet(structure Element = AbstractValue)
 structure AbsValSet = AbstractValueSet
 
-fun cfa {config: Config.t}
-   (*config:{alloc: Sxml.Var.t * Inst.t -> 'b,
-                equals: Inst.t * Inst.t -> bool,
-                new: unit -> Inst.t, 
-                layout: Inst.t -> Layout.t,
-                postBind: Inst.t * Sxml.Var.t -> Inst.t,
-                preEval: Inst.t * Sxml.PrimExp.t -> Inst.t,
-                store: {empty: 'b -> AbsValSet.t} ->
-                   {get: 'b -> AbsValSet.t,
-                    coalesce: Sxml.Var.t -> ('b * AbsValSet.t) list,
-                    destroy: Sxml.Var.t -> unit}}}*) : t =
+fun cfa {config: Config.t} : t =
    fn {program: Sxml.Program.t} =>
    let
       val Sxml.Program.T {datatypes, body, ...} = program
@@ -201,8 +189,6 @@ fun cfa {config: Config.t}
 
       val {freeVars, freeRecVars, destroy = destroyLambdaFree} =
          LambdaFree.lambdaFree {program = program}
-      fun varExpValue(ve, ctxt) = addrValue (Sxml.VarExp.var ve, ctxt)
-
       fun compatibleLambda(ty: Sxml.Type.t, argTy: Sxml.Type.t, resTy: Sxml.Type.t) =
          (* we really need more machinery to check result types *)
             (* or go through the entire program *)
