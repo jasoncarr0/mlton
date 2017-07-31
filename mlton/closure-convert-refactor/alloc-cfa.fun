@@ -236,7 +236,7 @@ fun cfa {config: Config.t}
                   (decs, ctxt, fn ({var, lambda, ty}, ctxt) => 
                   let
                      val addr = envGet (env, var)
-                     val nctxt = Inst.preEval (ctxt, Sxml.PrimExp.Lambda lambda)
+                     val nctxt = Inst.preEval (ctxt, {var=var, exp=Sxml.PrimExp.Lambda lambda})
                      val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda, ty), addrInfo addr)
                    in
                       (Inst.postBind (nctxt, {var=var, exp=Sxml.PrimExp.Lambda lambda}))
@@ -249,7 +249,7 @@ fun cfa {config: Config.t}
       and loopBind (ctxt, env, bind as {var, exp, ...}): (Inst.t * env) = 
          let
             val addr = alloc (var, ctxt)
-            val nctxt = Inst.preEval (ctxt, exp)
+            val nctxt = Inst.preEval (ctxt, {var=var, exp=exp})
             val _ = AbsValSet.<= (loopPrimExp (nctxt, env, bind), addrValue(var, ctxt))
             val env' = (var, addr) :: env
          in

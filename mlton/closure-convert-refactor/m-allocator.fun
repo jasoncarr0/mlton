@@ -16,7 +16,7 @@ struct
       Sxml.Var.hash arg + 0w17 * last)
    fun layout (_, c) = Layout.list (List.map(c, Sxml.Var.layout))
    fun new m = (m,[])
-   fun preEval ((m, ctxt), exp) = (case exp of
+   fun preEval ((m, ctxt), {var=_, exp}) = (case exp of
                   Sxml.PrimExp.App {func, ...} => let
                      val var = Sxml.VarExp.var func
                      in (m, List.firstN (var :: ctxt, m) handle
