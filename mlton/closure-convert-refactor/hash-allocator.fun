@@ -19,7 +19,7 @@ struct
    fun hash (_, h) = h
    fun new m = (Word.<< (0w1, m), combine (0w0, m))
    fun preEval ((m, hsh), _) = (m, combine (0wx8000, hsh))
-   fun postBind ((m, hsh), var) = (m, combine (Sxml.Var.hash var, hsh))
+   fun postBind ((m, hsh), {var, exp}) = (m, combine (Sxml.Var.hash var, hsh))
 end
 structure Addr =
 struct

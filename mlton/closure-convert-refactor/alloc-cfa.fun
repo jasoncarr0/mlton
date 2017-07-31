@@ -240,7 +240,7 @@ fun cfa {config: Config.t}
                      val nctxt = Inst.preEval (ctxt, Sxml.PrimExp.Lambda lambda)
                      val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda, ty), addrInfo addr)
                    in
-                      (Inst.postBind (nctxt, var))
+                      (Inst.postBind (nctxt, {var=var, exp=Sxml.PrimExp.Lambda lambda}))
                    end)
                in
                   (nctxt, env)
@@ -254,7 +254,7 @@ fun cfa {config: Config.t}
             val _ = AbsValSet.<= (loopPrimExp (nctxt, env, bind), addrValue(var, ctxt))
             val env' = (var, addr) :: env
          in
-            (Inst.postBind (ctxt, var), env')
+            (Inst.postBind (ctxt, {var=var, exp=exp}), env')
          end
       and loopPrimExp (ctxt, env, {exp: Sxml.PrimExp.t, ty: Sxml.Type.t, ...}): AbsValSet.t =
          (case exp of

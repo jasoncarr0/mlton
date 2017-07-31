@@ -26,7 +26,8 @@ signature ALLOCATOR =
             val layout: t -> Layout.t
             val new: Config.t -> t
             val preEval: t * Sxml.PrimExp.t -> t
-            val postBind: t * Sxml.Var.t -> t
+            val postBind: t * {var: Sxml.Var.t,
+                               exp: Sxml.PrimExp.t}-> t
          end
       structure Addr:
          sig
