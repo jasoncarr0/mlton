@@ -19,18 +19,9 @@ structure SynKnownCFA = SynKnownCFA(S)
 structure TyCFA = TyCFA(S)
 structure ZeroCFA = ZeroCFA(S)
 structure mCFA = mCFA(S)
-structure AllocHashCFA = AllocCFA(struct
-                           structure Sxml = Sxml
-                           structure Alloc = HashAllocator(S)
-                        end)
-structure AllocMCFA = AllocCFA(struct
-                           structure Sxml = Sxml
-                           structure Alloc = MAllocator(S)
-                        end)
-structure AllocUniCFA = AllocCFA(struct
-                           structure Sxml = Sxml
-                           structure Alloc = UniAllocator(S)
-                        end)
+structure AllocHashCFA = AllocCFA(HashAllocator(S))
+structure AllocMCFA = AllocCFA(MAllocator(S))
+structure AllocUniCFA = AllocCFA(UniAllocator(S))
 val cfaRef = ref (fn _ => Error.bug "ClosureConvert.cfa unset")
 val cfaString = ref "<cfa>"
 val cfaGet = fn () => !cfaString

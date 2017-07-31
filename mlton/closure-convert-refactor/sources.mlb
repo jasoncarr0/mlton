@@ -33,7 +33,6 @@ local
    hash-allocator.fun
    m-allocator.fun
    uni-allocator.fun
-   alloc-cfa.sig
    alloc-cfa.fun
 
    transform.sig

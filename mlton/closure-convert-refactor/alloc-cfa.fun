@@ -1,7 +1,6 @@
-functor AllocCFA(S: ALLOC_CFA_STRUCTS) = 
+functor AllocCFA(Alloc: ALLOCATOR): CFA =
 struct
 
-open S
 open Alloc
 
 type t = {program: Sxml.Program.t} ->
@@ -22,7 +21,7 @@ type t = {program: Sxml.Program.t} ->
       val makeHigherOrder = makeTop
    end
 
-   structure LambdaFree = LambdaFree(S)
+   structure LambdaFree = LambdaFree(Alloc)
 
 
    structure Proxy :>
