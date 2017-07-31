@@ -192,7 +192,7 @@ fun cfa {config: Config.t}
          (Sxml.Type.plist,
           Property.initFun (AbsValSet.singleton o AbsVal.Base))
 
-      val {get = lambdaInfo: Sxml.Lambda.t -> (Inst.t * AbsValSet.t option) list ref,
+      val {get = lambdaInfo: Sxml.Lambda.t -> (Inst.t * AbsValSet.t) list ref,
            destroy = destroyLambdaInfo} =
          Property.destGet
          (Sxml.Lambda.plist,
@@ -293,15 +293,18 @@ fun cfa {config: Config.t}
                                         (case List.peek (!(lambdaInfo lambda'),
                                            fn (ctxt', _) => Inst.equals (ctxt, ctxt'))
                                         of
-                                           SOME (_, SOME v1) => v1
-                                         | SOME (_, NONE) => res (* instrumentation is deterministic *)
+                                           SOME (_, v1) => v1
                                          | NONE =>
-                                              let
-                                                 val _ = List.push (lambdaInfo lambda', (ctxt, NONE))
+                                              let 
+                                                 (* determinism ensures that all values that flow
+                                                  * into res will flow into the other lambda
+                                                  * and isolation of res ensures these are the
+                                                  * only values *)
+                                                 val _ = List.push (lambdaInfo lambda', (ctxt, res))
                                                  val v1 = loopExp (ctxt, (arg', argAddr)::env', body')
                                                  val _ = lambdaInfo lambda' := List.map (!(lambdaInfo lambda'),
                                                     fn (ctxt', x) => if Inst.equals (ctxt, ctxt')
-                                                       then (ctxt', SOME v1)
+                                                       then (ctxt', v1)
                                                     else (ctxt', x))
                                               in
                                                  v1
