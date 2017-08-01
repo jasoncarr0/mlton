@@ -58,7 +58,7 @@ structure AbstractValue =
       datatype t =
          Array of Proxy.t
        | Base of Sxml.Type.t
-       | ConApp of (Sxml.Var.t * Addr.t) list * {con: Sxml.Con.t, arg: Sxml.Var.t option}
+       | ConApp of {con: Sxml.Con.t, arg: (Sxml.Var.t * Addr.t) option}
        | Lambda of (Sxml.Var.t * Addr.t) list * Sxml.Lambda.t * Sxml.Type.t
        | Ref of Proxy.t
        | Tuple of (Sxml.Var.t * Addr.t) vector
@@ -69,9 +69,11 @@ structure AbstractValue =
          case (e, e') of
             (Array p, Array p') => Proxy.equals (p, p')
           | (Base ty, Base ty') => Sxml.Type.equals (ty, ty')
-          | (ConApp (_, {con = con, arg = arg}), ConApp (_, {con = con', arg = arg'})) =>
+          | (ConApp {con = con, arg = arg}, ConApp {con = con', arg = arg'}) =>
                Sxml.Con.equals (con, con') andalso
-               Option.equals (arg, arg', Sxml.Var.equals)
+               Option.equals (arg, arg', fn ((var, addr), (var', addr')) =>
+               Sxml.Var.equals (var, var') andalso
+               Addr.equals (addr, addr'))
           | (Lambda (_, lam, _), Lambda (_, lam', _)) =>
                Sxml.Lambda.equals (lam, lam')
           | (Ref p, Ref p') => Proxy.equals (p, p')
@@ -89,11 +91,15 @@ structure AbstractValue =
             case e of
                Array p => seq [str "Array ", Proxy.layout p]
              | Base ty => seq [str "Base ", Sxml.Type.layout ty]
-             | ConApp (_, {con, arg}) => seq [Sxml.Con.layout con,
+             | ConApp {con, arg} => seq [Sxml.Con.layout con,
                                                  case arg of
                                                     NONE => empty
-                                                  | SOME arg => seq [str " ",
-                                                                     Sxml.Var.layout arg]]
+                                                  | SOME (arg, addr) => seq
+                                                      [str " ",
+                                                       Sxml.Var.layout arg,
+                                                       str " [",
+                                                       Addr.layout addr,
+                                                       str "]"]]
              | Lambda (_, lam, _) => seq [str "fn ", Sxml.Var.layout (Sxml.Lambda.arg lam)]
              | Ref p => seq [str "Ref ", Proxy.layout p]
              | Tuple xs => seq [tuple (Vector.toListMap (xs, fn (x, _) => Sxml.Var.layout x))]
@@ -321,16 +327,16 @@ fun cfa {config: Config.t} : t =
                             val _ = AbsValSet.addHandler
                                (envExpValue (env, test), fn v =>
                                 case v of
-                                   AbsVal.ConApp (env', {con = con', arg = arg'}) =>
+                                   AbsVal.ConApp {con = con', arg = arg'} =>
                                       (case Vector.peek (cases, fn (Sxml.Pat.T {con, ...}, _) =>
                                           Sxml.Con.equals (con, con')) of
                                           SOME (Sxml.Pat.T {arg, ...}, _) =>
                                              (case (arg', arg) of
                                                  (NONE, NONE) => ()
-                                               | (SOME arg', SOME (arg, _)) =>
+                                               | (SOME (var, arg'), SOME (arg, _)) =>
                                                     let
                                                        val _ = AbsValSet.<= 
-                                                      (envValue (env', arg'), addrValue (arg, ctxt))
+                                                      (addrInfo arg', addrValue (arg, ctxt))
                                                     in
                                                        ()
                                                     end
@@ -365,7 +371,17 @@ fun cfa {config: Config.t} : t =
            | Sxml.PrimExp.ConApp {con, arg, ...} =>
                 if Order.isFirstOrder (conOrder con)
                    then typeInfo ty
-                   else AbsValSet.singleton (AbsVal.ConApp (env, {con = con, arg = Option.map (arg, Sxml.VarExp.var)}))
+                   else AbsValSet.singleton (AbsVal.ConApp {con=con,
+                   arg=(case arg of
+                       NONE => NONE
+                     | SOME arg' =>
+                      let
+                         val var = Sxml.VarExp.var arg'
+                         val argAddr = Addr.alloc (var, ctxt)
+                         val _ = AbsValSet.<= (addrInfo argAddr, envValue(env, var))
+                      in
+                         SOME (var, argAddr)
+                      end)})
            | Sxml.PrimExp.Const _ =>
                 typeInfo ty
            | Sxml.PrimExp.Handle {try, catch = (var, _), handler} =>
