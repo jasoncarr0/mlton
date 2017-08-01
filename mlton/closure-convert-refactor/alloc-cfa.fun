@@ -1,3 +1,12 @@
+(* Copyright (C) 2017 Jason Carr.
+ * Copyright (C) 2016 Matthew Fluet.
+ *
+ * MLton is released under a BSD-style license.
+ * See the file MLton-LICENSE for details.
+ *)
+
+(* A generic CFA that uses an allocator to decide its behaviour
+ *)
 functor AllocCFA(Alloc: ALLOCATOR): CFA =
 struct
 
