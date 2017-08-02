@@ -26,7 +26,8 @@ end
 structure Addr =
 struct
    type t = unit
-fun alloc _ = ()
+   fun alloc _ = ()
+   fun realloc _ = ()
    fun equals _ = true
    fun hash () = 0w1
    fun layout () = Layout.str "()"

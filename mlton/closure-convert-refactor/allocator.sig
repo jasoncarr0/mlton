@@ -34,6 +34,9 @@ signature ALLOCATOR =
          sig
             type t
             val alloc: Sxml.Var.t * Inst.t -> t
+            val realloc: {addr: t,
+                          inst: Inst.t,
+                          var: Sxml.Var.t} -> t
             val equals: t * t -> bool
             val hash: t -> word
             val layout: t -> Layout.t

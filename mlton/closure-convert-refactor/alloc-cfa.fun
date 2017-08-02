@@ -74,7 +74,8 @@ structure AbstractValue =
                Option.equals (arg, arg', fn ((var, addr), (var', addr')) =>
                Sxml.Var.equals (var, var') andalso
                Addr.equals (addr, addr'))
-          | (Lambda (_, lam, _), Lambda (_, lam', _)) =>
+          | (Lambda (env, lam, _), Lambda (env', lam', _)) =>
+               List.equals (env, env', Addr.equals)
                Sxml.Lambda.equals (lam, lam')
           | (Ref p, Ref p') => Proxy.equals (p, p')
           | (Tuple xs, Tuple xs') =>
@@ -194,7 +195,7 @@ fun cfa {config: Config.t} : t =
          (Sxml.Type.plist,
           Property.initFun (AbsValSet.singleton o AbsVal.Base))
 
-      val {get = lambdaInfo: Sxml.Lambda.t -> (Inst.t * AbsValSet.t) list ref,
+      val {get = lambdaInfo: Sxml.Lambda.t -> ((Addr.t list) * AbsValSet.t) list ref,
            destroy = destroyLambdaInfo} =
          Property.destGet
          (Sxml.Lambda.plist,
@@ -272,26 +273,29 @@ fun cfa {config: Config.t} : t =
                                   else
                                   let
                                      val {arg = arg', body = body', ...} = Sxml.Lambda.dest lambda'
-                                     
-                                     val _ =
-                                        Vector.foreach
-                                        (freeVars lambda', fn x =>
-                                         AbsValSet.<= (envValue (env', x),
-                                                       addrValue(x, ctxt)))
-                                     val _ =
-                                        Vector.foreach
-                                        (freeRecVars lambda', fn f =>
-                                         AbsValSet.<= (envValue (env', f),
-                                                       addrValue(f, ctxt)))
+                                     fun rebind x =
+                                        let
+                                           val oldAddr = envGet (env', x)
+                                           val newAddr = Addr.realloc{var=x, addr=oldAddr, inst=ctxt}
+                                           val _ = AbsValSet.<= (addrInfo oldAddr,
+                                                                 addrInfo newAddr)
+                                        in
+                                           newAddr
+                                        end
+                                        (* stateful *)
+                                     val newFree = Vector.toListMap (freeVars lambda', rebind)
+                                     val newRec = Vector.toListMap (freeRecVars lambda', rebind)
                                      val argAddr = alloc(arg', ctxt)
-                                     val _ =
-                                        AbsValSet.<=
+
+                                     val boundVars = argAddr :: newFree @ newRec
+
+                                     val _ = AbsValSet.<=
                                         (envValue (env, (Sxml.VarExp.var arg)),
                                          addrInfo argAddr)
 
                                      val resVal =
                                         (case List.peek (!(lambdaInfo lambda'),
-                                           fn (ctxt', _) => Inst.equals (ctxt, ctxt'))
+                                           fn (bound', _) => List.equals (boundVars, bound', Addr.equals))
                                         of
                                            SOME (_, v1) => v1
                                          | NONE =>
@@ -300,12 +304,12 @@ fun cfa {config: Config.t} : t =
                                                   * into res will flow into the other lambda
                                                   * and isolation of res ensures these are the
                                                   * only values *)
-                                                 val _ = List.push (lambdaInfo lambda', (ctxt, res))
+                                                 val _ = List.push (lambdaInfo lambda', (boundVars, res))
                                                  val v1 = loopExp (ctxt, (arg', argAddr)::env', body')
                                                  val _ = lambdaInfo lambda' := List.map (!(lambdaInfo lambda'),
-                                                    fn (ctxt', x) => if Inst.equals (ctxt, ctxt')
-                                                       then (ctxt', v1)
-                                                    else (ctxt', x))
+                                                    fn (bound', x) => if List.equals (boundVars, bound', Addr.equals)
+                                                       then (bound', v1)
+                                                    else (bound', x))
                                               in
                                                  v1
                                               end)

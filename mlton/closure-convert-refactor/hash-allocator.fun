@@ -31,6 +31,7 @@ structure Addr =
 struct
    type t = word
    fun alloc (var, (m, hsh)) = combine (Sxml.Var.hash var, hsh) mod m
+   fun realloc {var, addr, inst=(m, hsh)} = combine (addr, combine (Sxml.Var.hash var, hsh))
    val layout = Layout.str o Word.toString
    val equals = op =
    fun hash x = x
