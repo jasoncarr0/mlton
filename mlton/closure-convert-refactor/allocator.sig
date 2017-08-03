@@ -27,6 +27,7 @@ signature ALLOCATOR =
                        | ConArg of (Sxml.Con.t * addr)
                        | HandleArg
                        | LetVal of Sxml.PrimExp.t
+                       | PrimAddr of Sxml.Type.t Sxml.Prim.t
          end
       structure SubExp:
          sig

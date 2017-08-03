@@ -33,41 +33,21 @@ type t = {program: Sxml.Program.t} ->
    structure LambdaFree = LambdaFree(Alloc)
 
 
-   structure Proxy :>
-   sig
-      type t = Sxml.Var.t
-      val all: unit -> t list
-      val equals: t * t -> bool
-      val layout: t -> Layout.t
-      val new: unit -> t
-      val plist: t -> PropertyList.t
-   end =
-   struct
-      type t = Sxml.Var.t
-      val all : t list ref = ref []
-      val equals = Sxml.Var.equals
-      val layout = Sxml.Var.layout
-      val new = fn () => let val p = Sxml.Var.newString "p"
-                         in List.push (all, p); p
-                         end
-      val plist = Sxml.Var.plist
-      val all = fn () => !all
-   end
 structure AbstractValue =
    struct
       datatype t =
-         Array of Proxy.t
+         Array of Addr.t
        | Base of Sxml.Type.t
        | ConApp of {con: Sxml.Con.t, arg: (Sxml.Var.t * Addr.t) option}
        | Lambda of (Sxml.Var.t * Addr.t) list * Sxml.Lambda.t * Sxml.Type.t
-       | Ref of Proxy.t
+       | Ref of Addr.t
        | Tuple of (Sxml.Var.t * Addr.t) vector
-       | Vector of Proxy.t
-       | Weak of Proxy.t
+       | Vector of Addr.t
+       | Weak of Addr.t
 
       fun equals (e, e') =
          case (e, e') of
-            (Array p, Array p') => Proxy.equals (p, p')
+            (Array p, Array p') => Addr.equals (p, p')
           | (Base ty, Base ty') => Sxml.Type.equals (ty, ty')
           | (ConApp {con = con, arg = arg}, ConApp {con = con', arg = arg'}) =>
                Sxml.Con.equals (con, con') andalso
@@ -79,12 +59,12 @@ structure AbstractValue =
                List.equals (env, env', fn ((var, addr), (var', addr')) =>
                   Sxml.Var.equals (var, var') andalso
                   Addr.equals (addr, addr'))
-          | (Ref p, Ref p') => Proxy.equals (p, p')
+          | (Ref p, Ref p') => Addr.equals (p, p')
           | (Tuple xs, Tuple xs') =>
                Vector.equals (xs, xs', fn ((x1, a1), (x2, a2)) => 
                   Sxml.Var.equals (x1, x2) andalso Addr.equals (a1, a2))
-          | (Vector p, Vector p') => Proxy.equals (p, p')
-          | (Weak p, Weak p') => Proxy.equals (p, p')
+          | (Vector p, Vector p') => Addr.equals (p, p')
+          | (Weak p, Weak p') => Addr.equals (p, p')
           | _ => false
 
       fun layout (e) =
@@ -92,7 +72,7 @@ structure AbstractValue =
             open Layout
          in
             case e of
-               Array p => seq [str "Array ", Proxy.layout p]
+               Array p => seq [str "Array ", Addr.layout p]
              | Base ty => seq [str "Base ", Sxml.Type.layout ty]
              | ConApp {con, arg} => seq [Sxml.Con.layout con,
                                                  case arg of
@@ -104,10 +84,10 @@ structure AbstractValue =
                                                        Addr.layout addr,
                                                        str "]"]]
              | Lambda (_, lam, _) => seq [str "fn ", Sxml.Var.layout (Sxml.Lambda.arg lam)]
-             | Ref p => seq [str "Ref ", Proxy.layout p]
+             | Ref p => seq [str "Ref ", Addr.layout p]
              | Tuple xs => seq [tuple (Vector.toListMap (xs, fn (x, _) => Sxml.Var.layout x))]
-             | Vector p => seq [str "Vector ", Proxy.layout p]
-             | Weak p => seq [str "Weak ", Proxy.layout p]
+             | Vector p => seq [str "Vector ", Addr.layout p]
+             | Weak p => seq [str "Weak ", Addr.layout p]
          end
 
       fun hash _ = 0wx0
@@ -183,13 +163,8 @@ fun cfa {config: Config.t} : t =
       fun addrValue (var, bind, inst) =
          addrInfo (alloc (var, bind, inst))
 
-          
 
-
-      val {get = proxyInfo: Proxy.t -> AbsValSet.t, ...} =
-         Property.get
-         (Proxy.plist,
-          Property.initFun (fn _ => AbsValSet.empty ()))
+      fun newProxy () = Sxml.Var.newString "p"
 
       val {get = typeInfo: Sxml.Type.t -> AbsValSet.t,
            destroy = destroyTypeInfo} =
@@ -205,7 +180,7 @@ fun cfa {config: Config.t} : t =
 
       (* We never use postBind with these since there's no handle block we
        * could bind them in, so we'll just make a new instrumentation here *)
-      val topLevelExn = Proxy.new ()
+      val topLevelExn = newProxy ()
       val topLevelExnAddr = alloc (topLevelExn, Bind.HandleArg, Inst.new config)
 
       val {freeVars, freeRecVars, destroy = destroyLambdaFree} =
@@ -426,7 +401,7 @@ fun cfa {config: Config.t} : t =
                          val arg' = Sxml.VarExp.var arg'
                          val oldAddr = envGet (env, arg')
                          val newAddr = Addr.alloc (* don't really need to consider this a variable *)
-                            {var=Proxy.new (), bind=Bind.ConArg (con, oldAddr), inst=inst}
+                            {var=newProxy (), bind=Bind.ConArg (con, oldAddr), inst=inst}
                          val _ = AbsValSet.<= (addrInfo oldAddr, addrInfo newAddr)
                       in
                          SOME (var, newAddr)
@@ -462,7 +437,8 @@ fun cfa {config: Config.t} : t =
                       case Sxml.Prim.name prim of
                          Array_uninit =>
                             let
-                               val pa = Proxy.new ()
+                               val p = newProxy ()
+                               val pa = alloc (p, Bind.PrimAddr prim, inst)
                             in
                                AbsValSet.<< (AbsVal.Array pa, res)
                             end
@@ -470,23 +446,24 @@ fun cfa {config: Config.t} : t =
                             AbsValSet.addHandler
                             (arg 0, fn v =>
                              case v of
-                                AbsVal.Array pa => AbsValSet.<= (proxyInfo pa, res)
+                                AbsVal.Array pa => AbsValSet.<= (addrInfo pa, res)
                               | _ => ())
                        | Array_update =>
                             (AbsValSet.addHandler
                              (arg 0, fn v =>
                               case v of
-                                 AbsVal.Array pa => AbsValSet.<= (arg 2, proxyInfo pa)
+                                 AbsVal.Array pa => AbsValSet.<= (arg 2, addrInfo pa)
                                | _ => ());
                              AbsValSet.<= (typeInfo Sxml.Type.unit, res))
                        | Array_toVector =>
                             let
-                               val pv = Proxy.new ()
+                               val p = newProxy ()
+                               val pv = alloc (p, Bind.PrimAddr prim, inst)
                             in
                                AbsValSet.addHandler
                                (arg 0, fn v =>
                                 case v of
-                                   AbsVal.Array pa => AbsValSet.<= (proxyInfo pa, proxyInfo pv)
+                                   AbsVal.Array pa => AbsValSet.<= (addrInfo pa, addrInfo pv)
                                  | _ => ());
                                AbsValSet.<< (AbsVal.Vector pv, res)
                             end
@@ -494,46 +471,49 @@ fun cfa {config: Config.t} : t =
                             (AbsValSet.addHandler
                              (arg 0, fn v =>
                               case v of
-                                 AbsVal.Ref pr => AbsValSet.<= (arg 1, proxyInfo pr)
+                                 AbsVal.Ref pr => AbsValSet.<= (arg 1, addrInfo pr)
                                | _ => ());
                              AbsValSet.<= (typeInfo Sxml.Type.unit, res))
                        | Ref_deref =>
                             AbsValSet.addHandler
                             (arg 0, fn v =>
                              case v of
-                                AbsVal.Ref pr => AbsValSet.<= (proxyInfo pr, res)
+                                AbsVal.Ref pr => AbsValSet.<= (addrInfo pr, res)
                               | _ => ())
                        | Ref_ref =>
                             let
-                               val pr = Proxy.new ()
+                               val p = newProxy ()
+                               val pr = alloc (p, Bind.PrimAddr prim, inst)
                             in
-                               AbsValSet.<= (arg 0, proxyInfo pr);
+                               AbsValSet.<= (arg 0, addrInfo pr);
                                AbsValSet.<< (AbsVal.Ref pr, res)
                             end
                        | Weak_new =>
                             let
-                               val pw = Proxy.new ()
+                               val p = newProxy ()
+                               val pw = alloc (p, Bind.PrimAddr prim, inst)
                             in
-                               AbsValSet.<= (arg 0, proxyInfo pw);
+                               AbsValSet.<= (arg 0, addrInfo pw);
                                AbsValSet.<< (AbsVal.Weak pw, res)
                             end
                        | Weak_get =>
                             AbsValSet.addHandler
                             (arg 0, fn v =>
                              case v of
-                                AbsVal.Weak pw => AbsValSet.<= (proxyInfo pw, res)
+                                AbsVal.Weak pw => AbsValSet.<= (addrInfo pw, res)
                               | _ => ())
                        | Vector_sub =>
                             AbsValSet.addHandler
                             (arg 0, fn v =>
                              case v of
-                                AbsVal.Vector pv => AbsValSet.<= (proxyInfo pv, res)
+                                AbsVal.Vector pv => AbsValSet.<= (addrInfo pv, res)
                               | _ => ())
                        | Vector_vector =>
                             let
-                               val pa = Proxy.new ()
+                               val p = newProxy ()
+                               val pv = alloc (p, Bind.PrimAddr prim, inst)
                             in
-                               AbsValSet.<< (AbsVal.Vector pa, res)
+                               AbsValSet.<< (AbsVal.Vector pv, res)
                             end
                        
                        | _ =>
@@ -578,9 +558,9 @@ fun cfa {config: Config.t} : t =
       val _ =
          Control.diagnostics
          (fn display =>
-          (List.foreach
+          ((*List.foreach
            (Proxy.all (), fn p =>
-            display (Proxy.layout p));
+            display (Sxml.Var.layout p));*)
            Sxml.Exp.foreachBoundVar
            (body, fn (x, _, _) =>
             List.foreach (HashSet.toList (varAddrs x), fn addr =>
