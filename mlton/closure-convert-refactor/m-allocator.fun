@@ -13,6 +13,23 @@ struct
    type t = int
    val scan = Parse.*> (Parse.str "m:", Parse.uint)
 end
+structure Bind =
+struct
+   type addr = (Sxml.Var.t * Sxml.Var.t list)
+   datatype t = LetVal of Sxml.PrimExp.t
+              | AppArg of (Sxml.Lambda.t * addr)
+              | AppFree of (Sxml.Lambda.t * addr)
+              | ConArg of (Sxml.Con.t * addr)
+              | CaseArg of Sxml.Con.t
+              | HandleArg
+end
+structure SubExp =
+struct
+   datatype t = LambdaBody of Sxml.Lambda.t
+              | CaseBody of (Sxml.Con.t * Sxml.Var.t option) option
+              | HandleTry
+              | HandleCatch
+end
 structure Inst =
 struct
    type t = (int * Sxml.Var.t list)
@@ -22,20 +39,17 @@ struct
       Sxml.Var.hash arg + 0w17 * last)
    fun layout (_, c) = Layout.list (List.map(c, Sxml.Var.layout))
    fun new m = (m,[])
-   fun preEval ((m, ctxt), {var=_, exp}) = (case exp of
-                  Sxml.PrimExp.App {func, ...} => let
-                     val var = Sxml.VarExp.var func
-                     in (m, List.firstN (var :: ctxt, m) handle
-                        _ => var :: ctxt)
-                     end
-                | _ => (m, ctxt))
+   fun descend ((m, ctxt), {var, exp=_, subExp}) = case subExp of
+         SubExp.LambdaBody _ =>
+            (m, List.firstN (var :: ctxt, m) handle
+               _ => var :: ctxt)
+       | _ => (m, ctxt)
    fun postBind (inst, _) = inst
 end
 structure Addr =
 struct
    type t = (Sxml.Var.t * Sxml.Var.t list)
-   fun alloc (var, (_, ctxt)) = (var, ctxt) (* discard m *)
-   fun realloc {var, addr, inst=(m, ctxt)} = (var, ctxt) (* discard m *)
+   fun alloc {var, bind=_, inst=(_, ctxt)} = (var, ctxt)
    fun equals ((v1, c1), (v2, c2)) = 
       Sxml.Var.equals (v1, v2) andalso
       List.equals(c1, c2, Sxml.Var.equals)

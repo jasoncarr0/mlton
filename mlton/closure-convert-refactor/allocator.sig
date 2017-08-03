@@ -18,6 +18,23 @@ signature ALLOCATOR =
             type t
             val scan: t Parse.t
          end
+      structure Bind:
+         sig
+            type addr
+            datatype t = LetVal of Sxml.PrimExp.t
+                   | AppArg of (Sxml.Lambda.t * addr)
+                   | AppFree of (Sxml.Lambda.t * addr)
+                   | ConArg of (Sxml.Con.t * addr)
+                   | CaseArg of Sxml.Con.t
+                   | HandleArg
+         end
+      structure SubExp:
+         sig
+            datatype t = LambdaBody of Sxml.Lambda.t
+                       | CaseBody of (Sxml.Con.t * Sxml.Var.t option) option
+                       | HandleTry
+                       | HandleCatch
+         end
       structure Inst:
          sig
             type t
@@ -25,18 +42,19 @@ signature ALLOCATOR =
             val hash: t -> word
             val layout: t -> Layout.t
             val new: Config.t -> t
-            val preEval: t * {var: Sxml.Var.t,
-                              exp: Sxml.PrimExp.t} -> t
             val postBind: t * {var: Sxml.Var.t,
-                               exp: Sxml.PrimExp.t}-> t
+                               bind: Bind.t}-> t
+            val descend: t * {var: Sxml.Var.t,
+                              exp: Sxml.PrimExp.t,
+                              subExp: SubExp.t} -> t
          end
       structure Addr:
          sig
-            type t
-            val alloc: Sxml.Var.t * Inst.t -> t
-            val realloc: {addr: t,
-                          inst: Inst.t,
-                          var: Sxml.Var.t} -> t
+            type t = Bind.addr
+
+            val alloc: {var: Sxml.Var.t,
+                        bind: Bind.t,
+                        inst: Inst.t} -> t
             val equals: t * t -> bool
             val hash: t -> word
             val layout: t -> Layout.t

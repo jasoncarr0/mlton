@@ -17,6 +17,23 @@ struct
    type t = word
    val scan = Parse.*> (Parse.str "hash:", Parse.<$> (Word.fromInt, Parse.uint))
 end
+structure Bind =
+struct
+   type addr = word
+   datatype t = LetVal of Sxml.PrimExp.t
+              | AppArg of (Sxml.Lambda.t * addr)
+              | AppFree of (Sxml.Lambda.t * addr)
+              | ConArg of (Sxml.Con.t * addr)
+              | CaseArg of Sxml.Con.t
+              | HandleArg
+end
+structure SubExp =
+struct
+   datatype t = LambdaBody of Sxml.Lambda.t
+              | CaseBody of (Sxml.Con.t * Sxml.Var.t option) option
+              | HandleTry
+              | HandleCatch
+end
 structure Inst =
 struct
    type t = (word * word)
@@ -24,14 +41,14 @@ struct
    fun equals ((m, h), (m', h')) = m = m' andalso (Word.mod(h, m)) = (Word.mod(h', m))
    fun hash (_, h) = h
    fun new m = (Word.<< (0w1, m), combine (0w0, m))
-   fun preEval ((m, hsh), {var, exp=_}) = (m, combine (0w13 + Sxml.Var.hash var, hsh))
-   fun postBind ((m, hsh), {var, exp=_}) = (m, combine (Sxml.Var.hash var, hsh))
+   fun descend ((m, hsh), {var, exp=_, subExp=_}) =
+      (m, combine (0w13 + Sxml.Var.hash var, hsh))
+   fun postBind ((m, hsh), {var, bind=_}) = (m, combine (Sxml.Var.hash var, hsh))
 end
 structure Addr =
 struct
    type t = word
-   fun alloc (var, (m, hsh)) = combine (Sxml.Var.hash var, hsh) mod m
-   fun realloc {var, addr, inst=(m, hsh)} = combine (addr, combine (Sxml.Var.hash var, hsh))
+   fun alloc {var, bind=_, inst=(m, hsh)} = combine (Sxml.Var.hash var, hsh) mod m
    val layout = Layout.str o Word.toString
    val equals = op =
    fun hash x = x
