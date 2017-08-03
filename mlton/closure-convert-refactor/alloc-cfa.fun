@@ -35,7 +35,7 @@ type t = {program: Sxml.Program.t} ->
 
    structure Proxy :>
    sig
-      type t
+      type t = Sxml.Var.t
       val all: unit -> t list
       val equals: t * t -> bool
       val layout: t -> Layout.t
@@ -203,7 +203,10 @@ fun cfa {config: Config.t} : t =
          (Sxml.Lambda.plist,
           Property.initFun (fn _ => ref []))
 
-      val exnProxy = Proxy.new ()
+      (* We never use postBind with these since there's no handle block we
+       * could bind them in, so we'll just make a new instrumentation here *)
+      val topLevelExn = Proxy.new ()
+      val topLevelExnAddr = alloc (topLevelExn, Bind.HandleArg, Inst.new config)
 
       val {freeVars, freeRecVars, destroy = destroyLambdaFree} =
          LambdaFree.lambdaFree {program = program}
@@ -220,17 +223,17 @@ fun cfa {config: Config.t} : t =
       fun envExpValue (env, v) = envValue (env, Sxml.VarExp.var v)
       type env = (Sxml.Var.t * Addr.t) list
 
-      fun loopExp (inst: Inst.t, env, exp: Sxml.Exp.t): AbsValSet.t =
+      fun loopExp (inst: Inst.t, env, raiseTo: Addr.t, exp: Sxml.Exp.t): AbsValSet.t =
          let
             val {decs, result} = Sxml.Exp.dest exp
             val resultVar = Sxml.VarExp.var result
             val (_, env') = List.fold (decs, (inst, env),
-               fn (dec, (inst, env)) => loopDec (inst, env, dec))
+               fn (dec, (inst, env)) => loopDec (inst, env, raiseTo, dec))
          in
             envValue(env', resultVar)
          end
-      and loopExp' (inst: Inst.t, env, exp: Sxml.Exp.t): unit = ignore (loopExp (inst, env, exp))
-      and loopDec (inst: Inst.t, env, dec: Sxml.Dec.t): (Inst.t * env) =
+      and loopExp' (inst: Inst.t, env, raiseTo: Addr.t, exp: Sxml.Exp.t): unit = ignore (loopExp (inst, env, raiseTo, exp))
+      and loopDec (inst: Inst.t, env, raiseTo: Addr.t, dec: Sxml.Dec.t): (Inst.t * env) =
          (case dec of
             Sxml.Dec.Fun {decs, ...} =>
                let
@@ -248,17 +251,17 @@ fun cfa {config: Config.t} : t =
                in
                   (ninst, env)
                end
-           | Sxml.Dec.MonoVal bind => loopBind (inst, env, bind)
+           | Sxml.Dec.MonoVal bind => loopBind (inst, env, raiseTo, bind)
            | _ => Error.bug "allocCFA.loopDec: strange dec")
-      and loopBind (inst, env, bind as {var, exp, ...}): (Inst.t * env) =
+      and loopBind (inst, env, raiseTo: Addr.t, bind as {var, exp, ...}): (Inst.t * env) =
          let
             val addr = alloc (var, Bind.LetVal exp, inst)
-            val _ = AbsValSet.<= (loopPrimExp (inst, env, bind), addrInfo addr)
+            val _ = AbsValSet.<= (loopPrimExp (inst, env, raiseTo, bind), addrInfo addr)
             val env' = (var, addr) :: env
          in
             (Inst.postBind (inst, {var=var, bind=Bind.LetVal exp}), env')
          end
-      and loopPrimExp (inst, env, {var: Sxml.Var.t, exp: Sxml.PrimExp.t, ty: Sxml.Type.t, ...}): AbsValSet.t =
+      and loopPrimExp (inst, env, raiseTo, {var: Sxml.Var.t, exp: Sxml.PrimExp.t, ty: Sxml.Type.t, ...}): AbsValSet.t =
          (case exp of
              Sxml.PrimExp.App {func, arg} =>
                 let
@@ -323,7 +326,7 @@ fun cfa {config: Config.t} : t =
                                                   * and isolation of res ensures these are the
                                                   * only values *)
                                                  val _ = List.push (lambdaInfo lambda', (boundVars, res))
-                                                 val v1 = loopExp (inst, (arg', formAddr)::env', body')
+                                                 val v1 = loopExp (inst, (arg', formAddr)::env', raiseTo, body')
                                                  val _ = lambdaInfo lambda' := List.map (!(lambdaInfo lambda'),
                                                     fn (bound', x) => if List.equals (boundVars, bound', Addr.equals)
                                                        then (bound', v1)
@@ -387,7 +390,7 @@ fun cfa {config: Config.t} : t =
                                          (env, inst)
                                       end
                                in
-                                  AbsValSet.<= (loopExp (inst, env, caseExp), res)
+                                  AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res)
                                end)
                          in
                             ()
@@ -398,7 +401,7 @@ fun cfa {config: Config.t} : t =
                                val inst = Inst.descend (inst,
                                   {var=var, exp=exp, subExp=SubExp.CaseBody NONE})
                             in
-                               AbsValSet.<= (loopExp (inst, env, caseExp), res)
+                               AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res)
                             end)
                    val _ =
                       Option.foreach
@@ -407,7 +410,7 @@ fun cfa {config: Config.t} : t =
                           val inst = Inst.descend (inst,
                              {var=var, exp=exp, subExp=SubExp.CaseBody NONE})
                        in
-                          AbsValSet.<= (loopExp (inst, env, caseExp), res)
+                          AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res)
                        end)
                 in
                    res
@@ -423,7 +426,7 @@ fun cfa {config: Config.t} : t =
                          val arg' = Sxml.VarExp.var arg'
                          val oldAddr = envGet (env, arg')
                          val newAddr = Addr.alloc (* don't really need to consider this a variable *)
-                            {var=Sxml.Var.newNoname (), bind=Bind.ConArg (con, oldAddr), inst=inst}
+                            {var=Proxy.new (), bind=Bind.ConArg (con, oldAddr), inst=inst}
                          val _ = AbsValSet.<= (addrInfo oldAddr, addrInfo newAddr)
                       in
                          SOME (var, newAddr)
@@ -433,17 +436,15 @@ fun cfa {config: Config.t} : t =
            | Sxml.PrimExp.Handle {try, catch = (catchVar, _), handler} =>
                 let
                    val res = AbsValSet.empty ()
+                   val newRaiseTo = alloc (catchVar, Bind.HandleArg, inst)
                    val tryInst = Inst.descend (inst,
                      {var=var, exp=exp, subExp = SubExp.HandleTry})
-                   val _ = AbsValSet.<= (loopExp (tryInst, env, try), res)
-
-                   val addr = alloc (catchVar, Bind.HandleArg, inst)
-                   val _ = AbsValSet.<= (proxyInfo exnProxy, addrInfo addr)
+                   val _ = AbsValSet.<= (loopExp (tryInst, env, newRaiseTo, try), res)
 
                    val catchInst = Inst.postBind (inst, {var=catchVar, bind=Bind.HandleArg})
                    val catchInst = Inst.descend (catchInst,
                      {var=var, exp=exp, subExp = SubExp.HandleCatch})
-                   val _ = AbsValSet.<= (loopExp (catchInst, (catchVar, addr) :: env, handler), res)
+                   val _ = AbsValSet.<= (loopExp (catchInst, (catchVar, raiseTo) :: env, raiseTo, handler), res)
                 in
                    res
                 end
@@ -544,7 +545,7 @@ fun cfa {config: Config.t} : t =
                 typeInfo ty
            | Sxml.PrimExp.Raise {exn, ...} =>
                 let
-                   val _ = AbsValSet.<= (envExpValue (env, exn), proxyInfo exnProxy)
+                   val _ = AbsValSet.<= (envExpValue (env, exn), addrInfo raiseTo)
                 in
                    AbsValSet.empty ()
                 end
@@ -572,15 +573,14 @@ fun cfa {config: Config.t} : t =
                 )
 
 
-      val _ = loopExp' (Inst.new config, [], body)
+      val _ = loopExp' (Inst.new config, [], topLevelExnAddr, body)
 
       val _ =
          Control.diagnostics
          (fn display =>
           (List.foreach
            (Proxy.all (), fn p =>
-            (display o Layout.seq)
-            [Proxy.layout p, Layout.str ": ", AbsValSet.layout (proxyInfo p)]);
+            display (Proxy.layout p));
            Sxml.Exp.foreachBoundVar
            (body, fn (x, _, _) =>
             List.foreach (HashSet.toList (varAddrs x), fn addr =>
