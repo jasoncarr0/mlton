@@ -26,7 +26,7 @@ type t = {program: Sxml.Program.t} ->
       structure L = TwoPointLattice (val bottom = "first-order"
                                      val top = "higher-order")
       open L
-      val isFirstOrder = isBottom
+      (*val isFirstOrder = isBottom*)
       val makeHigherOrder = makeTop
    end
 
@@ -144,13 +144,11 @@ fun cfa {config: Config.t} : t =
       val {get = addrInfo: Addr.t -> AbsValSet.t, 
            destroy = destroyAddrInfo} = 
            Addr.store {empty = fn _ => AbsValSet.empty ()}
-
       val {get = varAddrs: Sxml.Var.t -> Addr.t HashSet.t,
            destroy = destroyVarAddrs} =
          Property.destGet
          (Sxml.Var.plist,
           Property.initFun (fn _ => HashSet.new {hash=Addr.hash}))
-
       fun alloc (var, bind, inst) = let
          val addr = Addr.alloc {var=var, bind=bind, inst=inst}
       in
@@ -160,10 +158,6 @@ fun cfa {config: Config.t} : t =
           fn () => addr)
       end
 
-      fun addrValue (var, bind, inst) =
-         addrInfo (alloc (var, bind, inst))
-
-
       fun newProxy () = Sxml.Var.newString "p"
 
       val {get = typeInfo: Sxml.Type.t -> AbsValSet.t,
@@ -171,13 +165,11 @@ fun cfa {config: Config.t} : t =
          Property.destGet
          (Sxml.Type.plist,
           Property.initFun (AbsValSet.singleton o AbsVal.Base))
-
       val {get = lambdaInfo: Sxml.Lambda.t -> ((Addr.t list) * AbsValSet.t) list ref,
            destroy = destroyLambdaInfo} =
          Property.destGet
          (Sxml.Lambda.plist,
           Property.initFun (fn _ => ref []))
-
       (* We never use postBind with these since there's no handle block we
        * could bind them in, so we'll just make a new instrumentation here *)
       val topLevelExn = newProxy ()
@@ -320,6 +312,9 @@ fun cfa {config: Config.t} : t =
            | Sxml.PrimExp.Case {test, cases, default} =>
                 let
                    val res = AbsValSet.empty ()
+                   (* maintain one instance for each time we pass by a case expression
+                    * we're not really going to bother with any additional flattening *)
+                   val info : (Sxml.Con.t option * Addr.t option * AbsValSet.t) list ref = ref []
                    val _ =
                       case cases of
                          Sxml.Cases.Con cases => 
@@ -330,43 +325,68 @@ fun cfa {config: Config.t} : t =
                                    AbsVal.ConApp {con = con', arg = arg'} =>
                                       (case Vector.peek (cases, fn (Sxml.Pat.T {con, ...}, _) =>
                                           Sxml.Con.equals (con, con')) of
-                                          SOME (Sxml.Pat.T {arg, ...}, _) =>
-                                             (case (arg', arg) of
-                                                 (NONE, NONE) => ()
-                                               | (SOME (_, argAddr), SOME (arg, _)) =>
+                                          SOME (Sxml.Pat.T {arg, ...}, caseExp) =>
+                                             let
+                                                val argAddrOpt = (case List.peek (!info, fn (con, _, _) =>
+                                                   Option.exists (con, fn con => Sxml.Con.equals (con', con))) of
+                                                   SOME (SOME _, argAddrOpt, _) => argAddrOpt
+                                                 | NONE => 
                                                     let
-                                                       val bind = Bind.CaseArg con'
-                                                       val newAddr = alloc (arg, bind, inst)
-                                                       val _ = AbsValSet.<= (addrInfo argAddr, addrInfo newAddr)
+                                                       val (newAddr, env, inst) = case arg of 
+                                                           NONE => (NONE, env,
+                                                            Inst.descend (inst,
+                                                               {var=var, exp=exp, subExp=SubExp.CaseBody (SOME (con', NONE))}))
+                                                         | SOME (arg, _) => 
+                                                             let
+                                                                val addr = alloc (arg, Bind.CaseArg con', inst)
+                                                                val env' = (arg, addr) :: env
+                                                                val inst = Inst.postBind (inst, {var=arg, bind=Bind.CaseArg con'})
+                                                                val inst = Inst.descend (inst,
+                                                                   {var=var, exp=exp, subExp=SubExp.CaseBody (SOME (con', SOME arg)) })
+                                                             in
+                                                                (SOME addr, env', inst)
+                                                             end
+                                                       val _ = List.push (info, (SOME con', newAddr, res))
+                                                       val resVal = loopExp (inst, env, raiseTo, caseExp)
+                                                       val _ = AbsValSet.<= (resVal, res)
+                                                       val _ = info := List.map (!info,
+                                                          fn (con, a, v) => 
+                                                             if Option.exists (con, fn con => Sxml.Con.equals (con', con))
+                                                                then (con, a, resVal)
+                                                             else (con, a, v))
                                                     in
-                                                       ()
+                                                       newAddr
                                                     end
-                                               | _ => Error.bug "allocCFA.loopPrimExp: Case")
-                                        | NONE => ())
+                                                 (* Really, really shouldn't happen *)
+                                                 | _ => Error.bug "allocCFA.loopPrimExp: Case")
+                                                val _ = 
+                                                   (case (arg', argAddrOpt) of
+                                                       (NONE, NONE) => ()
+                                                     | (SOME (_, argAddr), SOME newAddr) =>
+                                                          AbsValSet.<= (addrInfo argAddr, addrInfo newAddr)
+                                                     | _ => Error.bug "allocCFA.loopPrimExp: Case")
+                                             in
+                                                ()
+                                             end
+                                        | NONE => case default of 
+                                            SOME (defExp, _) =>
+                                               (case List.peek (!info, fn (con, _, _) => Option.isNone con) of
+                                                 SOME _ =>
+                                                    () (* already flowed in the resVal *)
+                                               | NONE =>
+                                                  let
+                                                     val _ = List.push (info, (NONE, NONE, res))
+                                                     val resVal = loopExp (inst, env, raiseTo, defExp)
+                                                     val _ = info := List.map (!info,
+                                                     fn (con, a, v) => if Option.isNone con
+                                                        then (con, a, resVal)
+                                                     else (con, a, v))
+                                                  in
+                                                     AbsValSet.<= (resVal, res)
+                                                  end)
+                                          | NONE => ())
+                                 (* Non- ConApp *)
                                  | _ => ())
-                            val _ = Vector.foreach (cases, fn (Sxml.Pat.T {con, arg, ...}, caseExp) =>
-                               let
-                                  val _ = if Order.isFirstOrder (conOrder con)
-                                   then Option.foreach (arg, fn (defVar, ty) =>
-                                      AbsValSet.<= (typeInfo ty, addrValue(defVar, Bind.CaseArg con, inst)))
-                                   else ();
-                                  val (env, inst) = case arg of
-                                      NONE => (env,
-                                         Inst.descend (inst,
-                                            {var=var, exp=exp, subExp=SubExp.CaseBody (SOME (con, NONE))}))
-                                    | SOME (conArg, _) => let
-                                         val env = (conArg,
-                                            (* use Addr.alloc to delay setting the var usage info *)
-                                            Addr.alloc{var=conArg, bind=Bind.CaseArg con, inst=inst}) :: env
-                                         val inst = Inst.postBind (inst, {var=conArg, bind=Bind.CaseArg con})
-                                         val inst = Inst.descend (inst,
-                                            {var=var, exp=exp, subExp=SubExp.CaseBody (SOME (con, SOME conArg)) })
-                                      in
-                                         (env, inst)
-                                      end
-                               in
-                                  AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res)
-                               end)
                          in
                             ()
                          end
@@ -375,25 +395,20 @@ fun cfa {config: Config.t} : t =
                             let
                                val inst = Inst.descend (inst,
                                   {var=var, exp=exp, subExp=SubExp.CaseBody NONE})
+                               val _ =
+                                  Option.foreach (default, fn (caseExp, _) =>
+                                        AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res))
                             in
                                AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res)
                             end)
-                   val _ =
-                      Option.foreach
-                      (default, fn (caseExp, _) =>
-                       let
-                          val inst = Inst.descend (inst,
-                             {var=var, exp=exp, subExp=SubExp.CaseBody NONE})
-                       in
-                          AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res)
-                       end)
+
                 in
                    res
                 end
            | Sxml.PrimExp.ConApp {con, arg, ...} =>
-                if Order.isFirstOrder (conOrder con)
+                (*if false andalso Order.isFirstOrder (conOrder con)
                    then typeInfo ty
-                   else AbsValSet.singleton (AbsVal.ConApp {con=con,
+                   else*) AbsValSet.singleton (AbsVal.ConApp {con=con,
                    arg=(case arg of
                        NONE => NONE
                      | SOME arg' =>
@@ -425,10 +440,7 @@ fun cfa {config: Config.t} : t =
                 end
            | Sxml.PrimExp.Lambda lambda =>
                 AbsValSet.singleton (AbsVal.Lambda (env, lambda, ty))
-           | Sxml.PrimExp.PrimApp {prim, targs, args, ...} =>
-                if Vector.forall (targs, fn ty => Order.isFirstOrder (typeOrder ty))
-                   then typeInfo ty
-                else
+           | Sxml.PrimExp.PrimApp {prim, args, ...} =>
                 let
                    val res = AbsValSet.empty ()
                    fun arg i = envExpValue (env, Vector.sub (args, i))
@@ -517,7 +529,10 @@ fun cfa {config: Config.t} : t =
                             end
                        
                        | _ =>
-                            AbsValSet.<= (typeInfo ty, res)
+                            AbsValSet.<= (if Sxml.Type.equals(ty, Sxml.Type.bool)
+                               then AbsValSet.fromList [AbsVal.ConApp {con= Sxml.Con.truee, arg= NONE},
+                                                        AbsVal.ConApp {con= Sxml.Con.falsee, arg= NONE}]
+                            else (typeInfo ty), res)
                 in
                    res
                 end
@@ -530,23 +545,19 @@ fun cfa {config: Config.t} : t =
                    AbsValSet.empty ()
                 end
            | Sxml.PrimExp.Select {tuple, offset} =>
-                if Order.isFirstOrder (typeOrder ty)
-                   then typeInfo ty
-                   else let
-                           val res = AbsValSet.empty ()
-                           val _ = AbsValSet.addHandler
-                                   (envExpValue (env, tuple), fn v =>
-                                    case v of
-                                       AbsVal.Tuple xs' =>
-                                          AbsValSet.<= (addrInfo (#2 (Vector.sub (xs', offset))), res)
-                                     | _ => ())
-                        in
-                           res
-                        end
+                let
+                   val res = AbsValSet.empty ()
+                   val _ = AbsValSet.addHandler
+                          (envExpValue (env, tuple), fn v =>
+                           case v of
+                              AbsVal.Tuple xs' =>
+                                 AbsValSet.<= (addrInfo (#2 (Vector.sub (xs', offset))), res)
+                            | _ => ())
+                in
+                   res
+                end
            | Sxml.PrimExp.Tuple xs =>
-                if Order.isFirstOrder (typeOrder ty)
-                   then typeInfo ty
-                   else AbsValSet.singleton (AbsVal.Tuple (Vector.map (xs, 
+                AbsValSet.singleton (AbsVal.Tuple (Vector.map (xs,
                      fn v => (Sxml.VarExp.var v, envGet(env, Sxml.VarExp.var v)))))
            | Sxml.PrimExp.Var x =>
                 envExpValue (env, x)
