@@ -35,7 +35,6 @@ local
    implement-suffix.fun
    polyvariance.fun
    cps-transform.fun
-   inline-tiny.fun
    sxml-simplify.sig
    sxml-simplify.fun
    sxml.sig
