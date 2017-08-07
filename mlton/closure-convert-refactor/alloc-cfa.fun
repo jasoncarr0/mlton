@@ -140,17 +140,21 @@ fun cfa {config: Config.t} : t =
            (Option.foreach (arg, fn ty =>
                             Order.<= (typeOrder ty, conOrder con));
             Order.<= (conOrder con, tyconOrder tycon))))
-     
+
+
+      val {descend=descend, newInst=newInst, postBind=postBind,
+           alloc=allocTransient, store=store} = allocator config
+
       val {get = addrInfo: Addr.t -> AbsValSet.t, 
            destroy = destroyAddrInfo} = 
-           Addr.store {empty = fn _ => AbsValSet.empty ()}
+           store {empty = fn _ => AbsValSet.empty ()}
       val {get = varAddrs: Sxml.Var.t -> Addr.t HashSet.t,
            destroy = destroyVarAddrs} =
          Property.destGet
          (Sxml.Var.plist,
           Property.initFun (fn _ => HashSet.new {hash=Addr.hash}))
       fun alloc (var, bind, inst) = let
-         val addr = Addr.alloc {var=var, bind=bind, inst=inst}
+         val addr = allocTransient {var=var, bind=bind, inst=inst}
       in
          HashSet.lookupOrInsert
          (varAddrs var, Addr.hash addr, 
@@ -173,7 +177,7 @@ fun cfa {config: Config.t} : t =
       (* We never use postBind with these since there's no handle block we
        * could bind them in, so we'll just make a new instrumentation here *)
       val topLevelExn = newProxy ()
-      val topLevelExnAddr = alloc (topLevelExn, Bind.HandleArg, Inst.new config)
+      val topLevelExnAddr = alloc (topLevelExn, Bind.HandleArg, newInst ())
 
       val {freeVars, freeRecVars, destroy = destroyLambdaFree} =
          LambdaFree.lambdaFree {program = program}
@@ -213,7 +217,7 @@ fun cfa {config: Config.t} : t =
                      val addr = envGet (env, var)
                      val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda, ty), addrInfo addr)
                    in
-                      (Inst.postBind (inst, {var=var, bind=Bind.LetVal lamExp}))
+                      (postBind (inst, {var=var, bind=Bind.LetVal lamExp}))
                    end)
                in
                   (ninst, env)
@@ -226,7 +230,7 @@ fun cfa {config: Config.t} : t =
             val _ = AbsValSet.<= (loopPrimExp (inst, env, raiseTo, bind), addrInfo addr)
             val env' = (var, addr) :: env
          in
-            (Inst.postBind (inst, {var=var, bind=Bind.LetVal exp}), env')
+            (postBind (inst, {var=var, bind=Bind.LetVal exp}), env')
          end
       and loopPrimExp (inst, env, raiseTo, {var: Sxml.Var.t, exp: Sxml.PrimExp.t, ty: Sxml.Type.t, ...}): AbsValSet.t =
          (case exp of
@@ -263,13 +267,13 @@ fun cfa {config: Config.t} : t =
                                      (* update the instrumentation, for all the new simultaneous bindings
                                       * use the original addresses to give consistent info *)
                                      val inst = Vector.fold (freeVars lambda', inst,
-                                       fn (x, inst) => Inst.postBind (inst,
+                                       fn (x, inst) => postBind (inst,
                                           {var=x, bind=Bind.AppFree (lambda', envGet (env', x))}))
                                      val inst = Vector.fold (freeRecVars lambda', inst,
-                                       fn (x, inst) => Inst.postBind (inst,
+                                       fn (x, inst) => postBind (inst,
                                           {var=x, bind=Bind.AppFree (lambda', envGet (env', x))}))
                                      (* And use postbind for the lambda argument *)
-                                     val inst = Inst.postBind (inst, {var=arg', bind=Bind.AppArg (lambda', argAddr)})
+                                     val inst = postBind (inst, {var=arg', bind=Bind.AppArg (lambda', argAddr)})
 
                                      val _ = AbsValSet.<=
                                         (addrInfo argAddr,
@@ -279,7 +283,7 @@ fun cfa {config: Config.t} : t =
 
                                     (* Adjust the instrumentation to consider the body of the lambda
                                      * At this point it's seen all the (re-)bindings *)
-                                     val inst = Inst.descend (inst, {var=var, exp=exp, subExp=SubExp.LambdaBody lambda'})
+                                     val inst = descend (inst, {var=var, exp=exp, subExp=SubExp.LambdaBody lambda'})
 
                                      val resVal =
                                         (case List.peek (!(lambdaInfo lambda'),
@@ -334,14 +338,14 @@ fun cfa {config: Config.t} : t =
                                                     let
                                                        val (newAddr, env, inst) = case arg of 
                                                            NONE => (NONE, env,
-                                                            Inst.descend (inst,
+                                                            descend (inst,
                                                                {var=var, exp=exp, subExp=SubExp.CaseBody (SOME (con', NONE))}))
                                                          | SOME (arg, _) => 
                                                              let
                                                                 val addr = alloc (arg, Bind.CaseArg con', inst)
                                                                 val env' = (arg, addr) :: env
-                                                                val inst = Inst.postBind (inst, {var=arg, bind=Bind.CaseArg con'})
-                                                                val inst = Inst.descend (inst,
+                                                                val inst = postBind (inst, {var=arg, bind=Bind.CaseArg con'})
+                                                                val inst = descend (inst,
                                                                    {var=var, exp=exp, subExp=SubExp.CaseBody (SOME (con', SOME arg)) })
                                                              in
                                                                 (SOME addr, env', inst)
@@ -393,7 +397,7 @@ fun cfa {config: Config.t} : t =
                        | Sxml.Cases.Word _ =>
                             Sxml.Cases.foreach (cases, fn caseExp =>
                             let
-                               val inst = Inst.descend (inst,
+                               val inst = descend (inst,
                                   {var=var, exp=exp, subExp=SubExp.CaseBody NONE})
                                val _ =
                                   Option.foreach (default, fn (caseExp, _) =>
@@ -415,7 +419,7 @@ fun cfa {config: Config.t} : t =
                       let
                          val arg' = Sxml.VarExp.var arg'
                          val oldAddr = envGet (env, arg')
-                         val newAddr = Addr.alloc (* don't really need to consider this a variable *)
+                         val newAddr = allocTransient (* don't really need to consider this a variable *)
                             {var=newProxy (), bind=Bind.ConArg (con, oldAddr), inst=inst}
                          val _ = AbsValSet.<= (addrInfo oldAddr, addrInfo newAddr)
                       in
@@ -427,12 +431,12 @@ fun cfa {config: Config.t} : t =
                 let
                    val res = AbsValSet.empty ()
                    val newRaiseTo = alloc (catchVar, Bind.HandleArg, inst)
-                   val tryInst = Inst.descend (inst,
+                   val tryInst = descend (inst,
                      {var=var, exp=exp, subExp = SubExp.HandleTry})
                    val _ = AbsValSet.<= (loopExp (tryInst, env, newRaiseTo, try), res)
 
-                   val catchInst = Inst.postBind (inst, {var=catchVar, bind=Bind.HandleArg})
-                   val catchInst = Inst.descend (catchInst,
+                   val catchInst = postBind (inst, {var=catchVar, bind=Bind.HandleArg})
+                   val catchInst = descend (catchInst,
                      {var=var, exp=exp, subExp = SubExp.HandleCatch})
                    val _ = AbsValSet.<= (loopExp (catchInst, (catchVar, raiseTo) :: env, raiseTo, handler), res)
                 in
@@ -564,7 +568,7 @@ fun cfa {config: Config.t} : t =
                 )
 
 
-      val _ = loopExp' (Inst.new config, [], topLevelExnAddr, body)
+      val _ = loopExp' (newInst (), [], topLevelExnAddr, body)
 
       val _ =
          Control.diagnostics

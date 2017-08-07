@@ -37,19 +37,14 @@ struct
 end
 structure Inst =
 struct
-   type t = (word * word)
-   fun layout (_, h) = Layout.str (Word.toString h)
-   fun equals ((m, h), (m', h')) = m = m' andalso (Word.mod(h, m)) = (Word.mod(h', m))
-   fun hash (_, h) = h
-   fun new m = (Word.<< (0w1, m), combine (0w0, m))
-   fun descend ((m, hsh), {var, exp=_, subExp=_}) =
-      (m, combine (0w13 + Sxml.Var.hash var, hsh))
-   fun postBind ((m, hsh), {var, bind=_}) = (m, combine (Sxml.Var.hash var, hsh))
+   type t = word
+   fun layout h = Layout.str (Word.toString h)
+   val equals = op =
+   fun hash h = h
 end
 structure Addr =
 struct
    type t = word
-   fun alloc {var, bind=_, inst=(m, hsh)} = combine (Sxml.Var.hash var, hsh) mod m
    val layout = Layout.str o Word.toString
    val equals = op =
    fun hash x = x
@@ -68,5 +63,17 @@ struct
       end
 end
 
+fun allocator max =
+   let
+      val m = Word.<< (0w1, max)
+      fun new () = combine (0w0, m)
+      fun descend (hsh, {var, exp=_, subExp=_}) =
+         combine (0w13 + Sxml.Var.hash var, hsh)
+      fun postBind (hsh, {var, bind=_}) = combine (Sxml.Var.hash var, hsh)
+      fun alloc {var, bind=_, inst=hsh} = combine (Sxml.Var.hash var, hsh) mod m
+   in
+      {newInst=new, postBind=postBind, descend=descend,
+       alloc=alloc, store=Addr.store}
+   end
 
 end

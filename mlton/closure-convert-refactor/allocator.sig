@@ -42,25 +42,26 @@ signature ALLOCATOR =
             val equals: t * t -> bool
             val hash: t -> word
             val layout: t -> Layout.t
-            val new: Config.t -> t
-            val postBind: t * {var: Sxml.Var.t,
-                               bind: Bind.t}-> t
-            val descend: t * {var: Sxml.Var.t,
-                              exp: Sxml.PrimExp.t,
-                              subExp: SubExp.t} -> t
          end
       structure Addr:
          sig
             type t = Bind.addr
-
-            val alloc: {var: Sxml.Var.t,
-                        bind: Bind.t,
-                        inst: Inst.t} -> t
             val equals: t * t -> bool
             val hash: t -> word
             val layout: t -> Layout.t
-            val store: {empty: t -> 'a} -> 
-                        {get: t -> 'a,
-                         destroy: unit -> unit}
          end
+      val allocator: Config.t ->
+            {newInst: unit -> Inst.t,
+             postBind: Inst.t * {var: Sxml.Var.t,
+                                 bind: Bind.t}-> Inst.t,
+             descend: Inst.t * {var: Sxml.Var.t,
+                                exp: Sxml.PrimExp.t,
+                                subExp: SubExp.t} -> Inst.t,
+             alloc: {var: Sxml.Var.t,
+                     bind: Bind.t,
+                     inst: Inst.t} -> Addr.t,
+             store: {empty: Addr.t -> 'a} ->
+                        {get: Addr.t -> 'a,
+                         destroy: unit -> unit}}
+
 end

@@ -58,5 +58,8 @@ struct
       end
 end
 
+fun allocator _ =
+   {newInst=Inst.new, postBind=Inst.postBind, descend=Inst.descend,
+    alloc=Addr.alloc, store=Addr.store}
 
 end

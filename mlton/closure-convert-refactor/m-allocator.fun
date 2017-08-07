@@ -33,24 +33,16 @@ struct
 end
 structure Inst =
 struct
-   type t = (int * Sxml.Var.t list)
-   fun equals ((_, c1), (_, c2)) =
+   type t = Sxml.Var.t list
+   fun equals (c1, c2) =
       List.equals(c1, c2, Sxml.Var.equals)
-   fun hash (_, c) = List.fold(c, 0w1, fn (arg, last) =>
+   fun hash c = List.fold(c, 0w1, fn (arg, last) =>
       Sxml.Var.hash arg + 0w17 * last)
-   fun layout (_, c) = Layout.list (List.map(c, Sxml.Var.layout))
-   fun new m = (m,[])
-   fun descend ((m, ctxt), {var, exp=_, subExp}) = case subExp of
-         SubExp.LambdaBody _ =>
-            (m, List.firstN (var :: ctxt, m) handle
-               _ => var :: ctxt)
-       | _ => (m, ctxt)
-   fun postBind (inst, _) = inst
+   fun layout c = Layout.list (List.map(c, Sxml.Var.layout))
 end
 structure Addr =
 struct
    type t = (Sxml.Var.t * Sxml.Var.t list)
-   fun alloc {var, bind=_, inst=(_, ctxt)} = (var, ctxt)
    fun equals ((v1, c1), (v2, c2)) = 
       Sxml.Var.equals (v1, v2) andalso
       List.equals(c1, c2, Sxml.Var.equals)
@@ -58,28 +50,44 @@ struct
       List.fold(c, 0w1, fn (arg, last) =>
          Sxml.Var.hash arg + 0w17 * last)
    fun layout (_, c) = Layout.list (List.map(c, Sxml.Var.layout))
-   fun store {empty: (Sxml.Var.t * Sxml.Var.t list) -> 'a} =
-      let
-         val {get = getList: Sxml.Var.t -> (Sxml.Var.t list * 'a) list ref,
-              destroy = destroy} =
-                Property.destGet
-                (Sxml.Var.plist,
-                 Property.initFun (fn _ => ref []))
-         fun get (var, ctxt) = 
-            let
-               val ctxts = getList var
-            in
-               case List.peek (!ctxts, 
-                  fn (ctxt', _) => List.equals (ctxt, ctxt', Sxml.Var.equals)) of
-                     SOME (_, v) => v
-                   | NONE => let val v = empty (var, ctxt)
-                        in List.push (ctxts, (ctxt, v)); v 
-                     end
-            end
-      in
-         {get=get, destroy=destroy}
-      end
 
 end
+
+fun allocator m =
+   let
+      fun newInst () = []
+      fun descend (ctxt, {var, exp=_, subExp}) = case subExp of
+            SubExp.LambdaBody _ =>
+               List.firstN (var :: ctxt, m) handle
+                  _ => var :: ctxt
+          | _ => ctxt
+      fun postBind (inst, _) = inst
+      fun alloc {var, bind=_, inst} = (var, inst)
+      fun store {empty: (Sxml.Var.t * Sxml.Var.t list) -> 'a} =
+         let
+            val {get = getList: Sxml.Var.t -> (Sxml.Var.t list * 'a) list ref,
+                 destroy = destroy} =
+                   Property.destGet
+                   (Sxml.Var.plist,
+                    Property.initFun (fn _ => ref []))
+            fun get (var, ctxt) =
+               let
+                  val ctxts = getList var
+               in
+                  case List.peek (!ctxts,
+                     fn (ctxt', _) => List.equals (ctxt, ctxt', Sxml.Var.equals)) of
+                        SOME (_, v) => v
+                      | NONE => let val v = empty (var, ctxt)
+                           in List.push (ctxts, (ctxt, v)); v
+                        end
+               end
+         in
+            {get=get, destroy=destroy}
+         end
+   in
+      {descend=descend, newInst=newInst, postBind=postBind,
+       alloc=alloc, store=store}
+   end
+
 
 end
