@@ -10,8 +10,25 @@ open S
 
 structure Config = 
 struct
-   type t = int
-   val scan = Parse.*> (Parse.str "m:", Parse.uint)
+   datatype conSetting = ConMCFA
+                   | Con0CFA
+                   | ConGlobal
+   type t = {m: int, conSetting: conSetting}
+   local
+      open Parse
+      infix 1 <|> >>=
+      infix 2 <&>
+      infix  3 <*> <* *>
+      infixr 4 <$> <$$> <$$$> <$
+   in
+      fun mkCfg (m, conSetting) = {m=m, conSetting=conSetting}
+      val parseConSetting = any
+            [ConMCFA <$ str "mcfa",
+             Con0CFA <$ str "0cfa",
+             ConGlobal <$ str "global"]
+      val scan = mkCfg <$$> (str "m:" *> uint,
+         cut (str "con:" *> parseConSetting <|> pure Con0CFA))
+   end
 end
 structure Bind =
 struct
@@ -21,7 +38,7 @@ struct
               | CaseArg of Sxml.Con.t
               | ConArg of (Sxml.Con.t * addr)
               | HandleArg
-              | LetVal of Sxml.PrimExp.t
+              | LetVal of Sxml.PrimExp.t * Sxml.Type.t
               | PrimAddr of Sxml.Type.t Sxml.Prim.t
 end
 structure SubExp =
@@ -53,16 +70,47 @@ struct
 
 end
 
-fun allocator m =
+fun allocator {m, conSetting} =
    let
+      (* only used for ConGlobal setting *)
+      val {get = conInfo: Sxml.Con.t -> Addr.t,
+           destroy = destroyConInfo} =
+         Property.destGet
+         (Sxml.Con.plist,
+          Property.initFun (fn con => (Sxml.Var.newString ("constructor_" ^ (Sxml.Con.toString con)), [])))
+      (* used when we want to collapse type information *)
+      val {get = typeInfo: Sxml.Type.t -> Addr.t,
+           destroy = destroyTypeInfo} =
+         Property.destGet
+         (Sxml.Type.plist,
+          Property.initFun (fn typ =>
+            (Sxml.Var.newString ("type_" ^
+            (Sxml.Tycon.toString (Sxml.Type.tycon typ))), [])))
+      (* used when we want to collapse type information *)
+
+
       fun newInst () = []
       fun descend (ctxt, {var, exp=_, subExp}) = case subExp of
             SubExp.LambdaBody _ =>
-               List.firstN (var :: ctxt, m) handle
-                  _ => var :: ctxt
+               (List.firstN (var :: ctxt, m) handle
+                  _ => var :: ctxt)
           | _ => ctxt
       fun postBind (inst, _) = inst
-      fun alloc {var, bind=_, inst} = (var, inst)
+      fun alloc {var, bind, inst} = case bind of
+          Bind.LetVal (exp, typ) => (case exp of
+             Sxml.PrimExp.ConApp {arg, ...} =>
+               (case (conSetting, arg) of
+                   (Config.ConGlobal, _) => typeInfo typ
+                 | (Config.Con0CFA, _) => (var, [])
+                 | (Config.ConMCFA, SOME _) => (var, inst)
+                 | (Config.ConMCFA, NONE) => (var, inst))
+           | Sxml.PrimExp.Const _ => typeInfo typ (* always a single proxy *)
+           | _ => (var, inst))
+        | Bind.ConArg (con, addr) => (case conSetting of
+            Config.ConGlobal => conInfo con
+          | _ => addr) (* keep original address *)
+        | Bind.PrimAddr _ => (var, []) (* always 0-cfa for refs *)
+        | _ => (var, inst)
       fun store {empty: (Sxml.Var.t * Sxml.Var.t list) -> 'a} =
          let
             val {get = getList: Sxml.Var.t -> (Sxml.Var.t list * 'a) list ref,
@@ -84,6 +132,9 @@ fun allocator m =
          in
             {get=get, destroy=destroy}
          end
+
+      val _ = destroyConInfo
+      val _ = destroyTypeInfo
    in
       {descend=descend, newInst=newInst, postBind=postBind,
        alloc=alloc, store=store}

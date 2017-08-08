@@ -208,8 +208,8 @@ fun cfa {config: Config.t} : t =
          (case dec of
             Sxml.Dec.Fun {decs, ...} =>
                let
-                  val env = Vector.fold(decs, env, fn ({var, lambda, ...}, env) =>
-                     (var, alloc (var, Bind.LetVal (Sxml.PrimExp.Lambda lambda), inst)) :: env)
+                  val env = Vector.fold(decs, env, fn ({var, lambda, ty}, env) =>
+                     (var, alloc (var, Bind.LetVal (Sxml.PrimExp.Lambda lambda, ty), inst)) :: env)
                   val ninst = Vector.fold
                   (decs, inst, fn ({var, lambda, ty}, inst) =>
                   let
@@ -217,20 +217,20 @@ fun cfa {config: Config.t} : t =
                      val addr = envGet (env, var)
                      val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda, ty), addrInfo addr)
                    in
-                      (postBind (inst, {var=var, bind=Bind.LetVal lamExp}))
+                      (postBind (inst, {var=var, bind=Bind.LetVal (lamExp, ty)}))
                    end)
                in
                   (ninst, env)
                end
            | Sxml.Dec.MonoVal bind => loopBind (inst, env, raiseTo, bind)
            | _ => Error.bug "allocCFA.loopDec: strange dec")
-      and loopBind (inst, env, raiseTo: Addr.t, bind as {var, exp, ...}): (Inst.t * env) =
+      and loopBind (inst, env, raiseTo: Addr.t, bind as {var, exp, ty, ...}): (Inst.t * env) =
          let
-            val addr = alloc (var, Bind.LetVal exp, inst)
+            val addr = alloc (var, Bind.LetVal (exp, ty), inst)
             val _ = AbsValSet.<= (loopPrimExp (inst, env, raiseTo, bind), addrInfo addr)
             val env' = (var, addr) :: env
          in
-            (postBind (inst, {var=var, bind=Bind.LetVal exp}), env')
+            (postBind (inst, {var=var, bind=Bind.LetVal (exp, ty)}), env')
          end
       and loopPrimExp (inst, env, raiseTo, {var: Sxml.Var.t, exp: Sxml.PrimExp.t, ty: Sxml.Type.t, ...}): AbsValSet.t =
          (case exp of

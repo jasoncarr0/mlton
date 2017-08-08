@@ -25,7 +25,7 @@ struct
               | CaseArg of Sxml.Con.t
               | ConArg of (Sxml.Con.t * addr)
               | HandleArg
-              | LetVal of Sxml.PrimExp.t
+              | LetVal of Sxml.PrimExp.t * Sxml.Type.t
               | PrimAddr of Sxml.Type.t Sxml.Prim.t
 end
 structure SubExp =
