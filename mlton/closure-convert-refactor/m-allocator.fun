@@ -27,7 +27,7 @@ struct
              Con0CFA <$ str "0cfa",
              ConGlobal <$ str "global"]
       val scan = mkCfg <$$> (str "m:" *> uint,
-         cut (str "con:" *> parseConSetting <|> pure Con0CFA))
+      cut (str "," *> spaces *> str "con:" *> parseConSetting <|> pure ConMCFA))
    end
 end
 structure Bind =
@@ -97,7 +97,15 @@ fun allocator {m, conSetting} =
           | _ => ctxt
       fun postBind (inst, _) = inst
       fun alloc {var, bind, inst} = case bind of
-          Bind.LetVal (exp, typ) => (case exp of
+          Bind.CaseArg con => (case conSetting of
+            Config.ConGlobal => conInfo con
+          | Config.Con0CFA => (var, [])
+          | Config.ConMCFA => (var, inst))
+        | Bind.ConArg (con, (var', ctxt)) => (case conSetting of
+            Config.ConGlobal => conInfo con
+          | Config.Con0CFA => (var', []) (* delete argument context *)
+          | Config.ConMCFA => (var', ctxt)) (* keep original address *)
+        | Bind.LetVal (exp, typ) => (case exp of
              Sxml.PrimExp.ConApp {arg, ...} =>
                (case (conSetting, arg) of
                    (Config.ConGlobal, _) => typeInfo typ
@@ -106,10 +114,11 @@ fun allocator {m, conSetting} =
                  | (Config.ConMCFA, NONE) => (var, inst))
            | Sxml.PrimExp.Const _ => typeInfo typ (* always a single proxy *)
            | _ => (var, inst))
-        | Bind.ConArg (con, addr) => (case conSetting of
-            Config.ConGlobal => conInfo con
-          | _ => addr) (* keep original address *)
         | Bind.PrimAddr _ => (var, []) (* always 0-cfa for refs *)
+        | Bind.HandleArg => (case conSetting of
+            Config.ConGlobal => typeInfo Sxml.Type.exn
+          | Config.Con0CFA => (var, [])
+          | Config.ConMCFA => (var, inst))
         | _ => (var, inst)
       fun store {empty: (Sxml.Var.t * Sxml.Var.t list) -> 'a} =
          let
