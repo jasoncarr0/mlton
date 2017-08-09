@@ -11,8 +11,8 @@ open S
 structure Bind =
 struct
    type addr = unit
-   datatype t = AppArg of (Sxml.Lambda.t * addr)
-              | AppFree of (Sxml.Lambda.t * addr)
+   datatype t = AppArg of (Sxml.Var.t * Sxml.Lambda.t * addr)
+              | AppFree of (Sxml.Var.t * Sxml.Lambda.t * addr)
               | CaseArg of Sxml.Con.t
               | ConArg of (Sxml.Con.t * addr)
               | HandleArg

@@ -251,29 +251,36 @@ fun cfa {config: Config.t} : t =
                                      fun rebind x =
                                         let
                                            val oldAddr = envGet (env', x)
-                                           val newAddr = alloc (x, Bind.AppFree (lambda', oldAddr), inst)
+                                           val newAddr = alloc (x, Bind.AppFree (var, lambda', oldAddr), inst)
                                            val _ = AbsValSet.<= (addrInfo oldAddr,
                                                                  addrInfo newAddr)
                                         in
-                                           newAddr
+                                           (x, newAddr)
                                         end
                                         (* stateful *)
                                      val newFree = Vector.toListMap (freeVars lambda', rebind)
                                      val newRec = Vector.toListMap (freeRecVars lambda', rebind)
 
+                                     val env'' = []
+                                     val env'' = List.fold (newFree, env'', op ::)
+                                     val env'' = List.fold (newRec, env'', op ::)
+
+                                     val newFree = List.map(newFree, #2)
+                                     val newRec = List.map(newRec, #2)
+
                                      val argAddr = envGet (env, Sxml.VarExp.var arg)
-                                     val formAddr =  alloc(arg', Bind.AppArg (lambda', argAddr), inst)
+                                     val formAddr =  alloc(arg', Bind.AppArg (var, lambda', argAddr), inst)
 
                                      (* update the instrumentation, for all the new simultaneous bindings
                                       * use the original addresses to give consistent info *)
                                      val inst = Vector.fold (freeVars lambda', inst,
                                        fn (x, inst) => postBind (inst,
-                                          {var=x, bind=Bind.AppFree (lambda', envGet (env', x))}))
+                                          {var=x, bind=Bind.AppFree (var, lambda', envGet (env', x))}))
                                      val inst = Vector.fold (freeRecVars lambda', inst,
                                        fn (x, inst) => postBind (inst,
-                                          {var=x, bind=Bind.AppFree (lambda', envGet (env', x))}))
+                                          {var=x, bind=Bind.AppFree (var, lambda', envGet (env', x))}))
                                      (* And use postbind for the lambda argument *)
-                                     val inst = postBind (inst, {var=arg', bind=Bind.AppArg (lambda', argAddr)})
+                                     val inst = postBind (inst, {var=arg', bind=Bind.AppArg (var, lambda', argAddr)})
 
                                      val _ = AbsValSet.<=
                                         (addrInfo argAddr,
@@ -297,7 +304,7 @@ fun cfa {config: Config.t} : t =
                                                   * and isolation of res ensures these are the
                                                   * only values *)
                                                  val _ = List.push (lambdaInfo lambda', (boundVars, res))
-                                                 val v1 = loopExp (inst, (arg', formAddr)::env', raiseTo, body')
+                                                 val v1 = loopExp (inst, (arg', formAddr)::env'', raiseTo, body')
                                                  val _ = lambdaInfo lambda' := List.map (!(lambdaInfo lambda'),
                                                     fn (bound', x) => if List.equals (boundVars, bound', Addr.equals)
                                                        then (bound', v1)

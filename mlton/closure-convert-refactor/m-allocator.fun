@@ -33,8 +33,8 @@ end
 structure Bind =
 struct
    type addr = (Sxml.Var.t * Sxml.Var.t list)
-   datatype t = AppArg of (Sxml.Lambda.t * addr)
-              | AppFree of (Sxml.Lambda.t * addr)
+   datatype t = AppArg of (Sxml.Var.t * Sxml.Lambda.t * addr)
+              | AppFree of (Sxml.Var.t * Sxml.Lambda.t * addr)
               | CaseArg of Sxml.Con.t
               | ConArg of (Sxml.Con.t * addr)
               | HandleArg
@@ -89,15 +89,18 @@ fun allocator {m, conSetting} =
       (* used when we want to collapse type information *)
 
 
+      fun extend (ctxt, var) =
+         (List.firstN (var :: ctxt, m) handle
+            _ => var :: ctxt)
       fun newInst () = []
       fun descend (ctxt, {var, exp=_, subExp}) = case subExp of
-            SubExp.LambdaBody _ =>
-               (List.firstN (var :: ctxt, m) handle
-                  _ => var :: ctxt)
+            SubExp.LambdaBody _ => extend (ctxt, var)
           | _ => ctxt
       fun postBind (inst, _) = inst
       fun alloc {var, bind, inst} = case bind of
-          Bind.CaseArg con => (case conSetting of
+          Bind.AppArg (call, _, (_, ctxt0)) => (var, extend (ctxt0, call))
+        | Bind.AppFree (call, _, (_, ctxt0)) => (var, extend (ctxt0, call))
+        | Bind.CaseArg con => (case conSetting of
             Config.ConGlobal => conInfo con
           | Config.Con0CFA => (var, [])
           | Config.ConMCFA => (var, inst))
@@ -119,7 +122,6 @@ fun allocator {m, conSetting} =
             Config.ConGlobal => typeInfo Sxml.Type.exn
           | Config.Con0CFA => (var, [])
           | Config.ConMCFA => (var, inst))
-        | _ => (var, inst)
       fun store {empty: (Sxml.Var.t * Sxml.Var.t list) -> 'a} =
          let
             val {get = getList: Sxml.Var.t -> (Sxml.Var.t list * 'a) list ref,
