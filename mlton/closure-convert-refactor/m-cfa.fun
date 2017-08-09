@@ -523,7 +523,7 @@ local
    fun mkCfg m = {config = Config.T {m = m}} 
 in
    fun scan _ =
-      str "mcfa(m:" *>
+      str "mcfa(" *> str "m:" *>
       cfa <$> mkCfg <$> uint
       <* str ")"
 end

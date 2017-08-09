@@ -831,7 +831,7 @@ in
    fun scan _ = cfa <$> mkCfg <$$$>
       (str "0cfa(" *>
          str "avr:" *> AbstractValueRep.scan,
-         str "fo:" *> bool,
-         str "reach:" *> bool)
+         str ",fo:" *> bool,
+         str ",reach:" *> bool <* char #")")
 end
 end
