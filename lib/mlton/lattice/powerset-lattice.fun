@@ -37,92 +37,34 @@ structure EltSet :>
       val toList = fn es => es
    end
 
-
-datatype source = Copying of (source ref * (unit -> EltSet.t))
-                | Initialized of EltSet.t
-                | Uninitialized
-datatype t = T of {eltSource: source ref,
+datatype t = T of {elements: EltSet.t ref,
                    handlers: (Elt.t -> unit) list ref}
-fun hom (f: EltSet.t -> 'a, uninit: unit -> 'a, eltSource: source ref): 'a = 
-   let
-      fun loop src = case src of
-         Copying (_, els) => f (els ())
-       | Initialized els => f els
-       | Uninitialized => uninit ()
-   in
-      loop (!eltSource)
-   end
 
-fun layout (T {eltSource, ...}) =
-   hom (EltSet.layout, fn () => Layout.str "{}", eltSource)
+fun layout (T {elements, ...}) =
+   EltSet.layout (!elements)
 
-fun new es = T {eltSource = ref es,
+fun new es = T {elements = ref es,
                 handlers = ref []}
 
-fun empty () = new Uninitialized
-fun singleton e = new (Initialized (EltSet.singleton e))
-fun fromList es = new (Initialized (EltSet.fromList es))
+fun empty () = new EltSet.empty
+fun singleton e = new (EltSet.singleton e)
+fun fromList es = new (EltSet.fromList es)
 
-fun getElements (T {eltSource, ...}) =
-   hom (EltSet.toList, fn () => [], eltSource)
+fun getElements (es as T {elements, ...}) =
+   EltSet.toList (!elements)
 
-fun addHandler (T {eltSource, handlers, ...}, h) =
+fun addHandler (T {elements, handlers, ...}, h) =
    (List.push (handlers, h);
-    hom (fn s => EltSet.foreach (s, fn e => h e), fn () => (), eltSource))
+    EltSet.foreach (!elements, fn e => h e))
 
-(* always inintializes *)
-fun addAndInit (els, e, T {eltSource, handlers, ...}) =
-   (eltSource := Initialized (EltSet.add (els, e));
-    List.foreach (!handlers, fn h => h e))
-fun op<< (e, es as T {eltSource, handlers, ...}) =
-   case !eltSource of
-       Copying (src, srcEls) =>
-         if EltSet.contains (srcEls (), e)
-         then ()
-         else addAndInit (srcEls (), e, es)
-     | Initialized els =>
-          if EltSet.contains (els, e)
-          then ()
-          else addAndInit (els, e, es)
-     | Uninitialized => 
-          (eltSource := Initialized (EltSet.singleton e);
-           List.foreach (!handlers, fn h => h e))
+fun op<< (e, T {elements, handlers, ...}) =
+   if EltSet.contains (!elements, e)
+      then ()
+      else (elements := EltSet.add (!elements, e);
+            List.foreach (!handlers, fn h => h e))
 
-(* the mechanics of this rely on only being called for the actual source *)
-fun flowFromCopySource (e, es as T {eltSource, handlers, ...}) =
-   case (!eltSource) of
-       (Copying _) => List.foreach (!handlers, fn h => h e)
-     | (Initialized els) => op<< (e, es)
-       (* can't happen *)
-     | _ => Error.bug "PowerSetLattice_ListSet.flowFromCopySource"
-
-fun op<= (es as T {eltSource, ...}, es' as T {eltSource=eltSource', ...}) =
-   case (!eltSource, !eltSource') of
-      (Copying (src, srcEls), Uninitialized) =>
-      let
-          fun loop s = if s = eltSource'
-             then true
-             else case !s of
-                  Copying (s', _) => loop s'
-                | _ => false
-          val cycles = loop src
-      in
-         if cycles
-         then (eltSource' := Initialized (srcEls ()); addHandler (es, fn e => << (e, es')))
-         else (eltSource' := Copying (eltSource, srcEls); addHandler (es, fn e => flowFromCopySource (e, es')))
-      end
-    | (Initialized els, Uninitialized) =>
-       let
-          fun getEls es = case es of
-              Initialized els => els
-            | Uninitialized => EltSet.empty
-            | Copying (_, els) => els ()
-          val _ = eltSource' := Copying (eltSource, fn () => getEls (!eltSource))
-          val _ = addHandler (es, fn e => flowFromCopySource (e, es'))
-       in
-          ()
-       end
-    | _ => addHandler(es, fn e => << (e, es'))
+fun op<= (es, es') =
+   addHandler(es, fn e => << (e, es'))
 
 end
 
