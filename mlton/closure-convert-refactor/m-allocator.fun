@@ -66,7 +66,10 @@ struct
    fun hash (v, c) = Sxml.Var.hash v + 0w17 *
       List.fold(c, 0w1, fn (arg, last) =>
          Sxml.Var.hash arg + 0w17 * last)
-   fun layout (_, c) = Layout.list (List.map(c, Sxml.Var.layout))
+   fun layout (v, c) = Layout.seq
+      [Sxml.Var.layout v,
+       Layout.str ":",
+       Layout.list (List.map(c, Sxml.Var.layout))]
 
 end
 

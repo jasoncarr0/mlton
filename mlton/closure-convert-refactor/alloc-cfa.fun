@@ -85,7 +85,7 @@ structure AbstractValue =
                                                        str "]"]]
              | Lambda (_, lam, _) => seq [str "fn ", Sxml.Var.layout (Sxml.Lambda.arg lam)]
              | Ref p => seq [str "Ref ", Addr.layout p]
-             | Tuple xs => seq [tuple (Vector.toListMap (xs, fn (x, _) => Sxml.Var.layout x))]
+             | Tuple xs => seq [tuple (Vector.toListMap (xs, fn (_, a) => Addr.layout a))]
              | Vector p => seq [str "Vector ", Addr.layout p]
              | Weak p => seq [str "Weak ", Addr.layout p]
          end
@@ -178,6 +178,7 @@ fun cfa {config: Config.t} : t =
        * could bind them in, so we'll just make a new instrumentation here *)
       val topLevelExn = newProxy ()
       val topLevelExnAddr = alloc (topLevelExn, Bind.HandleArg, newInst ())
+      val overflow = AbsValSet.singleton (AbsVal.ConApp {con=Sxml.Con.overflow, arg=NONE})
 
       val {freeVars, freeRecVars, destroy = destroyLambdaFree} =
          LambdaFree.lambdaFree {program = program}
@@ -269,7 +270,7 @@ fun cfa {config: Config.t} : t =
                                      val newRec = List.map(newRec, #2)
 
                                      val argAddr = envGet (env, Sxml.VarExp.var arg)
-                                     val formAddr =  alloc(arg', Bind.AppArg (var, lambda', argAddr), inst)
+                                     val formAddr = alloc(arg', Bind.AppArg (var, lambda', argAddr), inst)
 
                                      (* update the instrumentation, for all the new simultaneous bindings
                                       * use the original addresses to give consistent info *)
@@ -417,9 +418,7 @@ fun cfa {config: Config.t} : t =
                    res
                 end
            | Sxml.PrimExp.ConApp {con, arg, ...} =>
-                (*if false andalso Order.isFirstOrder (conOrder con)
-                   then typeInfo ty
-                   else*) AbsValSet.singleton (AbsVal.ConApp {con=con,
+                   AbsValSet.singleton (AbsVal.ConApp {con=con,
                    arg=(case arg of
                        NONE => NONE
                      | SOME arg' =>
@@ -430,7 +429,7 @@ fun cfa {config: Config.t} : t =
                             {var=newProxy (), bind=Bind.ConArg (con, oldAddr), inst=inst}
                          val _ = AbsValSet.<= (addrInfo oldAddr, addrInfo newAddr)
                       in
-                         SOME (var, newAddr)
+                         SOME (arg', newAddr)
                       end)})
            | Sxml.PrimExp.Const _ =>
                 typeInfo ty
@@ -540,10 +539,17 @@ fun cfa {config: Config.t} : t =
                             end
                        
                        | _ =>
-                            AbsValSet.<= (if Sxml.Type.equals(ty, Sxml.Type.bool)
-                               then AbsValSet.fromList [AbsVal.ConApp {con= Sxml.Con.truee, arg= NONE},
-                                                        AbsVal.ConApp {con= Sxml.Con.falsee, arg= NONE}]
-                            else (typeInfo ty), res)
+                            let
+                               val _ = AbsValSet.<= (if Sxml.Type.equals(ty, Sxml.Type.bool)
+                                  then AbsValSet.fromList [AbsVal.ConApp {con= Sxml.Con.truee, arg= NONE},
+                                                           AbsVal.ConApp {con= Sxml.Con.falsee, arg= NONE}]
+                                  else (typeInfo ty), res)
+                               val _ = if Sxml.Prim.mayOverflow prim
+                                       then AbsValSet.<= (overflow, addrInfo raiseTo)
+                                       else ()
+                            in
+                               ()
+                            end
                 in
                    res
                 end
