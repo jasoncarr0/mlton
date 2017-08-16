@@ -18,22 +18,27 @@ signature TRANSFORM =
       structure Config:
          sig
             type t
-            val init: t
          end
 
       type t = {program: Sxml.Program.t,
+                caseUsed: {test: Sxml.Var.t,
+                           con: Sxml.Con.t} ->
+                   bool,
                 cfa: {arg: Sxml.Var.t,
                       argTy: Sxml.Type.t,
                       func: Sxml.Var.t,
                       res: Sxml.Var.t,
                       resTy: Sxml.Type.t} ->
-                     Sxml.Lambda.t list} ->
+                   Sxml.Lambda.t list,
+                knownCon: {res: Sxml.Var.t} ->
+                   {arg: Sxml.VarExp.t option,
+                    con: Sxml.Con.t} option,
+                varUsed: {var: Sxml.Var.t} ->
+                   bool} ->
                {program: Ssa.Program.t,
                 destroy: unit -> unit}
 
       val transform: {config: Config.t} -> t
 
-      val scan: ((char, 'a) StringCvt.reader -> (t, 'a) StringCvt.reader) ->
-                (char, 'a) StringCvt.reader ->
-                (t, 'a) StringCvt.reader
-   end
+      val scan: t Parse.t -> t Parse.t
+end

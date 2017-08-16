@@ -18,13 +18,21 @@ structure Config =
    end
 
 type t = {program: Sxml.Program.t} ->
-         {cfa: {arg: Sxml.Var.t,
+         {caseUsed: {test: Sxml.Var.t,
+                     con: Sxml.Con.t} ->
+             bool,
+          cfa: {arg: Sxml.Var.t,
                 argTy: Sxml.Type.t,
                 func: Sxml.Var.t,
                 res: Sxml.Var.t,
                 resTy: Sxml.Type.t} ->
-               Sxml.Lambda.t list,
-          destroy: unit -> unit}
+             Sxml.Lambda.t list,
+          destroy: unit -> unit,
+          knownCon: {res: Sxml.Var.t} ->
+             {arg: Sxml.VarExp.t option,
+              con: Sxml.Con.t} option,
+          varUsed: {var: Sxml.Var.t} ->
+             bool}
 
 structure Value = AbstractValue (structure Sxml = Sxml)
 
@@ -269,6 +277,10 @@ fun cfa {config: Config.t}: t =
             Value.Lambdas lambdas => lambdas
           | _ => Error.bug "OrigCFA.cfa: non-lambda"
 
+      fun caseUsed _ = true
+      fun knownCon _ = NONE
+      fun varUsed _ = true
+
       val destroy = fn () =>
          (Value.destroy ();
           Vector.foreach
@@ -286,7 +298,8 @@ fun cfa {config: Config.t}: t =
            handleBoundVar = (fn (var, _, _) => remVarInfo var),
            handleVarExp = ignore})
    in
-      {cfa = cfa, destroy = destroy}
+      {caseUsed=caseUsed, cfa=cfa, destroy=destroy,
+       knownCon=knownCon, varUsed=varUsed}
    end
 val cfa = fn config =>
    Control.trace (Control.Detail, "OrigCFA")
@@ -301,7 +314,7 @@ local
 in
    fun scan _ = cfa <$> mkCfg <$> (
       str "ocfa(" *>
-         str "reach:" *> 
+         str "reach:" *>
             (true <$ str "true" <|>
              false <$ str "false") <*
          str ")")

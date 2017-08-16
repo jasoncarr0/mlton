@@ -54,40 +54,29 @@ val _ = cfaSet "synkwn(tycfa)"
 
 (* Transforms *)
 structure TyTransform = TyTransform(S)
+structure TyTransformCon = TyTransformCon(S)
 structure UnifTransform = UnifTransform(S)
 val transRef = ref (fn _ => Error.bug "ClosureConvert.trans unset")
 val transString = ref "<trans>"
 val transGet = fn () => !transString
-val transSet =
-   let
-      val transRdrs =
-         TyTransform.scan ::
-         UnifTransform.scan ::
-         nil
+local
+   fun set string cfa =
+         (transRef := cfa;
+          transString := string)
+   open Parse
+   infix 1 <|> >>=
+   infix 2 <&>
+   infix  3 <*> <* *>
+   infixr 4 <$> <$$> <$$$> <$
 
-      fun transRdrRec charRdr strm0 =
-         let
-            fun loop transRdrs =
-               case transRdrs of
-                  [] => NONE
-                | transRdr::transRdrs =>
-                     (case transRdr transRdrRec charRdr strm0 of
-                         NONE => loop transRdrs
-                       | SOME (trans, strm') => SOME (trans, strm'))
-         in
-            loop transRdrs
-         end
-   in
-      fn s =>
-      case transRdrRec Substring.getc (Substring.full s) of
-         NONE => Result.No s
-       | SOME (trans, ss') =>
-            if Substring.isEmpty ss'
-               then (transRef := trans;
-                     transString := s;
-                     Result.Yes ())
-               else Result.No s
-   end
+   fun transRdrs () = any (List.map (
+      [TyTransform.scan,
+       UnifTransform.scan,
+       TyTransformCon.scan],
+      fn f => f (delay transRdrs)))
+in
+   fun transSet s = parseString(set s <$> (transRdrs () <* failing next), s)
+end
 val _ = List.push (Control.indirectFlags, {flag = "cc-trans", get = transGet, set = transSet})
 val _ = transSet "tytrans(g:true,s:true)"
 
@@ -98,7 +87,7 @@ fun closureConvert (program: Sxml.Program.t): Ssa.Program.t =
       val cfa =
          Control.trace (Control.Pass, "cfa: " ^ !cfaString) (!cfaRef)
 
-      val {cfa, destroy = destroyCFA, ...} =
+      val {caseUsed, cfa, destroy = destroyCFA, knownCon, varUsed, ...} =
          cfa {program = program}
 
       val _ =
@@ -169,7 +158,8 @@ fun closureConvert (program: Sxml.Program.t): Ssa.Program.t =
          Control.trace (Control.Pass, "trans: " ^ !transString) (!transRef)
 
       val {program, destroy = destroyTransform, ...} =
-         transform {program = program, cfa = cfa}
+         transform {program=program, caseUsed=caseUsed, cfa=cfa,
+                    knownCon=knownCon, varUsed=varUsed}
 
       val _ = destroyCFA ()
       val _ = destroyTransform ()

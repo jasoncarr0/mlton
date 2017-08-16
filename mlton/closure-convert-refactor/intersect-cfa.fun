@@ -11,13 +11,21 @@ struct
 open S
 
 type t = {program: Sxml.Program.t} ->
-         {cfa: {arg: Sxml.Var.t,
+         {caseUsed: {test: Sxml.Var.t,
+                     con: Sxml.Con.t} ->
+             bool,
+          cfa: {arg: Sxml.Var.t,
                 argTy: Sxml.Type.t,
                 func: Sxml.Var.t,
                 res: Sxml.Var.t,
                 resTy: Sxml.Type.t} ->
-               Sxml.Lambda.t list,
-          destroy: unit -> unit}
+             Sxml.Lambda.t list,
+          destroy: unit -> unit,
+          knownCon: {res: Sxml.Var.t} ->
+             {arg: Sxml.VarExp.t option,
+              con: Sxml.Con.t} option,
+          varUsed: {var: Sxml.Var.t} ->
+             bool}
 
 structure Config = struct type t = {baseCFAs: t list} end
 
@@ -31,9 +39,10 @@ fun cfa {config = {baseCFAs}: Config.t}: t =
          (List.unzip o List.map)
          (baseCFAs, fn cfa =>
           let
-             val {cfa, destroy} = cfa {program = program}
+             val {caseUsed, cfa, destroy, knownCon, varUsed} = cfa {program = program}
           in
-             (cfa, destroy)
+             ({caseUsed=caseUsed, cfa=cfa, knownCon=knownCon, varUsed=varUsed},
+               destroy)
           end)
 
       val (baseCFA0, baseCFAs) =
@@ -49,15 +58,26 @@ fun cfa {config = {baseCFAs}: Config.t}: t =
                 Sxml.Lambda.t list =
          fn call =>
          List.fold
-         (baseCFAs, baseCFA0 call, fn (baseCFA, lambdas) =>
-          intersect (lambdas, baseCFA call))
+         (baseCFAs, #cfa baseCFA0 call, fn (baseCFA, lambdas) =>
+          intersect (lambdas, #cfa baseCFA call))
+
+      val caseUsed =
+         fn info => List.forall (baseCFAs, fn baseCFA =>
+            #caseUsed baseCFA info)
+      val knownCon =
+         fn info => List.peekMap (baseCFAs, fn baseCFA =>
+            #knownCon baseCFA info)
+      val varUsed =
+         fn info => List.forall (baseCFAs, fn baseCFA =>
+            #varUsed baseCFA info)
 
       val destroy = fn () =>
          List.foreach
          (destroyBaseCFAs, fn destroyBaseCFA =>
           destroyBaseCFA ())
    in
-      {cfa = cfa, destroy = destroy}
+      {caseUsed=caseUsed, cfa=cfa, destroy=destroy,
+       knownCon=knownCon, varUsed=varUsed}
    end
 val cfa = fn config =>
    Control.trace (Control.Detail, "IntersectCFA")
@@ -69,7 +89,7 @@ local
    infix 2 <&>
    infix  3 <*> <* *>
    infixr 4 <$> <$$> <$$$> <$
-   fun mkCfg t = {config = {baseCFAs = Vector.toList t}} 
+   fun mkCfg t = {config = {baseCFAs = Vector.toList t}}
 in
    fun scan scanRec =
       str "isect" *>

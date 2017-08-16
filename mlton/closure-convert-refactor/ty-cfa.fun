@@ -16,13 +16,21 @@ open S
 structure Config = struct type t = unit end
 
 type t = {program: Sxml.Program.t} ->
-         {cfa: {arg: Sxml.Var.t,
+         {caseUsed: {test: Sxml.Var.t,
+                     con: Sxml.Con.t} ->
+             bool,
+          cfa: {arg: Sxml.Var.t,
                 argTy: Sxml.Type.t,
                 func: Sxml.Var.t,
                 res: Sxml.Var.t,
                 resTy: Sxml.Type.t} ->
-               Sxml.Lambda.t list,
-          destroy: unit -> unit}
+             Sxml.Lambda.t list,
+          destroy: unit -> unit,
+          knownCon: {res: Sxml.Var.t} ->
+             {arg: Sxml.VarExp.t option,
+              con: Sxml.Con.t} option,
+          varUsed: {var: Sxml.Var.t} ->
+             bool}
 
 fun cfa (_: {config: Config.t}): t =
    fn {program: Sxml.Program.t} =>
@@ -54,10 +62,15 @@ fun cfa (_: {config: Config.t}): t =
          fn {argTy, resTy, ...} =>
          ! (arrowInfo (Sxml.Type.arrow (argTy, resTy)))
 
+      fun caseUsed _ = true
+      fun knownCon _ = NONE
+      fun varUsed _ = true
+
       val destroy = fn () =>
          destroyArrowInfo ()
    in
-      {cfa = cfa, destroy = destroy}
+      {caseUsed=caseUsed, cfa=cfa, destroy=destroy,
+       knownCon=knownCon, varUsed=varUsed}
    end
 val cfa = fn config =>
    Control.trace (Control.Detail, "TyCFA")

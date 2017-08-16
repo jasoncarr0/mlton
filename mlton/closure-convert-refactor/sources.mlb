@@ -21,6 +21,7 @@ local
    globalize.fun
 
    cfa.sig
+   allocator.sig
    ty-cfa.fun
    synknown-cfa.fun
    intersect-cfa.fun
@@ -29,7 +30,6 @@ local
    orig-cfa.fun
    zero-cfa.fun
    m-cfa.fun
-   allocator.sig
    hash-allocator.fun
    m-allocator.fun
    uni-allocator.fun
@@ -37,6 +37,7 @@ local
 
    transform.sig
    ty-transform.fun
+   ty-transform-con.fun
    unif-transform.fun
 
    closure-convert.sig

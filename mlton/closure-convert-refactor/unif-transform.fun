@@ -24,22 +24,23 @@ structure Globalize = Globalize(S)
 structure Config =
    struct
       datatype t = T of {globalizeOpt: bool, shrinkOpt: bool}
-      val init = T {globalizeOpt = true, shrinkOpt = true}
-      fun updateGlobalizeOpt (T {shrinkOpt, ...}: t, globalizeOpt) =
-         T {globalizeOpt = globalizeOpt,
-            shrinkOpt = shrinkOpt}
-      fun updateShrinkOpt (T {globalizeOpt, ...}: t, shrinkOpt) =
-         T {globalizeOpt = globalizeOpt,
-            shrinkOpt = shrinkOpt}
    end
 
 type t = {program: Sxml.Program.t,
+          caseUsed: {test: Sxml.Var.t,
+                     con: Sxml.Con.t} ->
+             bool,
           cfa: {arg: Sxml.Var.t,
                 argTy: Sxml.Type.t,
                 func: Sxml.Var.t,
                 res: Sxml.Var.t,
                 resTy: Sxml.Type.t} ->
-               Sxml.Lambda.t list} ->
+             Sxml.Lambda.t list,
+          knownCon: {res: Sxml.Var.t} ->
+             {arg: Sxml.VarExp.t option,
+              con: Sxml.Con.t} option,
+          varUsed: {var: Sxml.Var.t} ->
+             bool} ->
          {program: Ssa.Program.t,
           destroy: unit -> unit}
 
@@ -251,7 +252,7 @@ end
 structure AbsVal = AbstractValue
 
 fun transform {config: Config.t}: t =
-   fn {program: Sxml.Program.t, cfa} =>
+   fn {program: Sxml.Program.t, cfa, ...} =>
    let
       val Config.T {globalizeOpt, shrinkOpt} = config
       val Sxml.Program.T {datatypes, body, overflow} = program
@@ -1006,43 +1007,18 @@ val transform = fn config =>
    Control.trace (Control.Pass, "UnifTransform")
    (transform config)
 
-fun scan _ charRdr strm0 =
-   let
-      fun mkNameArgScan (name, scanArg, updateConfig) (config: Config.t) strm0 =
-         case Scan.string (name ^ ":") charRdr strm0 of
-            SOME ((), strm1) =>
-               (case scanArg strm1 of
-                   SOME (arg, strm2) =>
-                      SOME (updateConfig (config, arg), strm2)
-                 | _ => NONE)
-          | _ => NONE
-      val nameArgScans =
-         (mkNameArgScan ("g", Bool.scan charRdr, Config.updateGlobalizeOpt))::
-         (mkNameArgScan ("s", Bool.scan charRdr, Config.updateShrinkOpt))::
-         nil
-
-      fun scanNameArgs (nameArgScans, config) strm =
-         case nameArgScans of
-            nameArgScan::nameArgScans =>
-               (case nameArgScan config strm of
-                   SOME (config', strm') =>
-                      (case nameArgScans of
-                          [] => (case charRdr strm' of
-                                    SOME (#")", strm'') =>
-                                       SOME (transform {config = config'}, strm'')
-                                  | _ => NONE)
-                        | _ => (case charRdr strm' of
-                                   SOME (#",", strm'') => scanNameArgs (nameArgScans, config') strm''
-                                 | _ => NONE))
-                 | _ => NONE)
-          | _ => NONE
-   in
-      case Scan.string "uniftrans" charRdr strm0 of
-         SOME ((), strm1) =>
-            (case charRdr strm1 of
-                SOME (#"(", strm2) => scanNameArgs (nameArgScans, Config.init) strm2
-              | _ => NONE)
-       | _ => NONE
-   end
-
+local
+   open Parse
+   infix 1 <|> >>=
+   infix 2 <&>
+   infix  3 <*> <* *>
+   infixr 4 <$> <$$> <$$$> <$
+   fun mkCfg (g, s) = {config=Config.T {globalizeOpt=g, shrinkOpt=s}}
+   val bool = true <$ str "true" <|> false <$ str "false"
+in
+fun scan _ = str "uniftrans" *> str "(" *>
+   transform <$> mkCfg <$$> ((str "g:" *> bool <|> pure true) <*
+                             optional (str "," *> spaces),
+                             str "s:" *> bool <|> pure true) <* str ")"
+end
 end

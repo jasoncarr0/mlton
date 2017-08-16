@@ -13,20 +13,29 @@ struct
 open S
 
 type t = {program: Sxml.Program.t} ->
-         {cfa: {arg: Sxml.Var.t,
+         {caseUsed: {test: Sxml.Var.t,
+                     con: Sxml.Con.t} ->
+             bool,
+          cfa: {arg: Sxml.Var.t,
                 argTy: Sxml.Type.t,
                 func: Sxml.Var.t,
                 res: Sxml.Var.t,
                 resTy: Sxml.Type.t} ->
-               Sxml.Lambda.t list,
-          destroy: unit -> unit}
+             Sxml.Lambda.t list,
+          destroy: unit -> unit,
+          knownCon: {res: Sxml.Var.t} ->
+             {arg: Sxml.VarExp.t option,
+              con: Sxml.Con.t} option,
+          varUsed: {var: Sxml.Var.t} ->
+             bool}
 
 structure Config = struct type t = {baseCFA: t} end
 
 fun cfa {config = {baseCFA}: Config.t}: t =
    fn {program: Sxml.Program.t} =>
    let
-      val {cfa = baseCFA, destroy = destroyBaseCFA} =
+      val {caseUsed=caseUsed, cfa=baseCFA, destroy=destroyBaseCFA,
+           knownCon=knownCon, varUsed=varUsed} =
          baseCFA {program = program}
 
       val Sxml.Program.T {body, ...} = program
@@ -65,7 +74,8 @@ fun cfa {config = {baseCFA}: Config.t}: t =
          (destroyBaseCFA ();
           destroyVarInfo ())
    in
-      {cfa = cfa, destroy = destroy}
+      {caseUsed=caseUsed, cfa=cfa, destroy=destroy,
+       knownCon=knownCon, varUsed=varUsed}
    end
 val cfa = fn config =>
    Control.trace (Control.Detail, "SynKnownCFA")
@@ -77,7 +87,7 @@ local
    infix 2 <&>
    infix  3 <*> <* *>
    infixr 4 <$> <$$> <$$$> <$
-   fun mkCfg t = {config = {baseCFA = t}} 
+   fun mkCfg t = {config = {baseCFA = t}}
 in
    fun scan scanRec =
       str "synkwn(" *>

@@ -70,13 +70,21 @@ structure Config =
    end
 
 type t = {program: Sxml.Program.t} ->
-         {cfa: {arg: Sxml.Var.t,
+         {caseUsed: {test: Sxml.Var.t,
+                     con: Sxml.Con.t} ->
+             bool,
+          cfa: {arg: Sxml.Var.t,
                 argTy: Sxml.Type.t,
                 func: Sxml.Var.t,
                 res: Sxml.Var.t,
                 resTy: Sxml.Type.t} ->
-               Sxml.Lambda.t list,
-          destroy: unit -> unit}
+             Sxml.Lambda.t list,
+          destroy: unit -> unit,
+          knownCon: {res: Sxml.Var.t} ->
+             {arg: Sxml.VarExp.t option,
+              con: Sxml.Con.t} option,
+          varUsed: {var: Sxml.Var.t} ->
+             bool}
 
 structure Order =
    struct
@@ -517,6 +525,10 @@ fun cfa {config: Config.t}: t =
             !lams
          end
 
+      fun caseUsed _ = true
+      fun knownCon _ = NONE
+      fun varUsed _ = true
+
       val destroy = fn () =>
          (destroyConOrder ();
           destroyTyconOrder ();
@@ -525,7 +537,8 @@ fun cfa {config: Config.t}: t =
           destroyTypeInfo ();
           destroyLambdaInfo ())
    in
-      {cfa = cfa, destroy = destroy}
+      {caseUsed=caseUsed, cfa=cfa, destroy=destroy,
+       knownCon=knownCon, varUsed=varUsed}
    end
 val cfa = fn config =>
    Control.trace (Control.Detail, "ZeroCFA")
@@ -677,13 +690,21 @@ structure Config =
    end
 
 type t = {program: Sxml.Program.t} ->
-         {cfa: {arg: Sxml.Var.t,
+         {caseUsed: {test: Sxml.Var.t,
+                     con: Sxml.Con.t} ->
+             bool,
+          cfa: {arg: Sxml.Var.t,
                 argTy: Sxml.Type.t,
                 func: Sxml.Var.t,
                 res: Sxml.Var.t,
                 resTy: Sxml.Type.t} ->
-               Sxml.Lambda.t list,
-          destroy: unit -> unit}
+             Sxml.Lambda.t list,
+          destroy: unit -> unit,
+          knownCon: {res: Sxml.Var.t} ->
+             {arg: Sxml.VarExp.t option,
+              con: Sxml.Con.t} option,
+          varUsed: {var: Sxml.Var.t} ->
+             bool}
 
 local
 structure Proxy :>

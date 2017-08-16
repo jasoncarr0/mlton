@@ -7,19 +7,28 @@
 
 (* A generic CFA that uses an allocator to decide its behaviour
  *)
-functor AllocCFA(Alloc: ALLOCATOR): CFA =
+functor AllocCFA(Allocator: ALLOCATOR): CFA =
 struct
 
-open Alloc
+open Allocator
+structure Allocator = Allocator
 
 type t = {program: Sxml.Program.t} ->
-         {cfa: {arg: Sxml.Var.t,
-                argTy: Sxml.Type.t,
-                func: Sxml.Var.t,
-                res: Sxml.Var.t,
-                resTy: Sxml.Type.t} ->
+           {caseUsed: {test: Sxml.Var.t,
+                       con: Sxml.Con.t} ->
+               bool,
+            cfa: {arg: Sxml.Var.t,
+                  argTy: Sxml.Type.t,
+                  func: Sxml.Var.t,
+                  res: Sxml.Var.t,
+                  resTy: Sxml.Type.t} ->
                Sxml.Lambda.t list,
-          destroy: unit -> unit}
+            destroy: unit -> unit,
+            knownCon: {res: Sxml.Var.t} ->
+               {arg: Sxml.VarExp.t option,
+                con: Sxml.Con.t} option,
+            varUsed: {var: Sxml.Var.t} ->
+               bool}
 
    structure Order =
    struct
@@ -30,7 +39,7 @@ type t = {program: Sxml.Program.t} ->
       val makeHigherOrder = makeTop
    end
 
-   structure LambdaFree = LambdaFree(Alloc)
+   structure LambdaFree = LambdaFree(Allocator)
 
 
 structure AbstractValue =
@@ -161,6 +170,19 @@ fun cfa {config: Config.t} : t =
           fn addr' => Addr.equals (addr, addr'),
           fn () => addr)
       end
+
+      (* used for diagnostic *)
+      val {get = caseInfo: Sxml.Var.t -> (Inst.t * Sxml.Con.t) list ref,
+           destroy = destroyCaseInfo} =
+         Property.destGet
+         (Sxml.Var.plist,
+          Property.initFun (fn _ => ref []))
+      val caseVars: Sxml.Var.t HashSet.t = HashSet.new {hash=Sxml.Var.hash}
+      fun addCaseVar var =
+         HashSet.lookupOrInsert
+         (caseVars, Sxml.Var.hash var,
+          fn var' => Sxml.Var.equals (var, var'),
+          fn () => var)
 
       fun newProxy () = Sxml.Var.newString "p"
 
@@ -324,6 +346,7 @@ fun cfa {config: Config.t} : t =
            | Sxml.PrimExp.Case {test, cases, default} =>
                 let
                    val res = AbsValSet.empty ()
+                   val _ = addCaseVar (Sxml.VarExp.var test)
                    (* maintain one instance for each time we pass by a case expression
                     * we're not really going to bother with any additional flattening *)
                    val info : (Sxml.Con.t option * Addr.t option * AbsValSet.t) list ref = ref []
@@ -366,6 +389,7 @@ fun cfa {config: Config.t} : t =
                                                              if Option.exists (con, fn con => Sxml.Con.equals (con', con))
                                                                 then (con, a, resVal)
                                                              else (con, a, v))
+                                                       val _ = List.push (caseInfo (Sxml.VarExp.var test), (inst, con'))
                                                     in
                                                        newAddr
                                                     end
@@ -537,7 +561,6 @@ fun cfa {config: Config.t} : t =
                             in
                                AbsValSet.<< (AbsVal.Vector pv, res)
                             end
-                       
                        | _ =>
                             let
                                val _ = AbsValSet.<= (if Sxml.Type.equals(ty, Sxml.Type.bool)
@@ -586,18 +609,30 @@ fun cfa {config: Config.t} : t =
       val _ =
          Control.diagnostics
          (fn display =>
-          ((*List.foreach
-           (Proxy.all (), fn p =>
-            display (Sxml.Var.layout p));*)
-           Sxml.Exp.foreachBoundVar
+          ((HashSet.foreach (caseVars,
+          fn var => (display o Layout.seq)
+             [Layout.str "case ",
+              Sxml.Var.layout var,
+              Layout.str " of ",
+              List.layout (fn (inst, con) =>
+                 Layout.seq
+                    [Layout.str "(",
+                     Inst.layout inst,
+                     Layout.str " ",
+                     Sxml.Con.layout con,
+                     Layout.str ")"]) (!(caseInfo var))]));
+          (Sxml.Exp.foreachBoundVar
            (body, fn (x, _, _) =>
             List.foreach (HashSet.toList (varAddrs x), fn addr =>
             (display o Layout.seq)
             [Sxml.Var.layout x, Layout.str " @ ",
              Addr.layout addr, Layout.str " : ", 
-             AbsValSet.layout (addrInfo addr)]))))
+             AbsValSet.layout (addrInfo addr)])))))
 
-         
+      fun allValues var = List.removeDuplicates
+         (List.concatMap (HashSet.toList (varAddrs var),
+            fn s => AbsValSet.getElements (addrInfo s)),
+          AbsVal.equals)
 
       val cfa : {arg: Sxml.Var.t,
                  argTy: Sxml.Type.t,
@@ -605,20 +640,42 @@ fun cfa {config: Config.t} : t =
                  res: Sxml.Var.t,
                  resTy: Sxml.Type.t} ->
                 Sxml.Lambda.t list =
-         fn {func, argTy, resTy, ...} =>
-            List.removeDuplicates
-            (List.concatMap (HashSet.toList (varAddrs func),
-               fn s => 
-                  List.keepAllMap(AbsValSet.getElements (addrInfo s), fn absVal =>
-                     case absVal of 
-                        AbsVal.Lambda (_, lam, ty) => if compatibleLambda(ty, argTy, resTy) 
-                        then SOME lam
-                        else NONE
-                      | _ => NONE)),
-             Sxml.Lambda.equals)
-         
+         fn {func, argTy, resTy, ...} => List.removeDuplicates (
+            List.keepAllMap (allValues func, fn absVal =>
+               case absVal of
+                  AbsVal.Lambda (_, lam, ty) => if compatibleLambda(ty, argTy, resTy)
+                  then SOME lam
+                  else NONE
+                | _ => NONE),
+                  Sxml.Lambda.equals)
+      fun caseUsed {test: Sxml.Var.t,
+                    con: Sxml.Con.t} =
+         List.exists (!(caseInfo test),
+            fn (_, con') => Sxml.Con.equals (con, con'))
+      val knownCon: {res: Sxml.Var.t} ->
+             {arg: Sxml.VarExp.t option,
+              con: Sxml.Con.t} option =
+         fn {res} =>
+            let
+               val absVals = List.keepAllMap(allValues res, fn absVal =>
+                  case absVal of
+                     AbsVal.ConApp {con, arg} => SOME {con=con,
+                        arg=Option.map(arg, Sxml.VarExp.mono o #1)}
+                   | _ => NONE)
+            in
+               case absVals of
+                   [{con, arg=NONE}] => SOME {con=con, arg=NONE}
+                 | _ => NONE
+            end
+
+      fun varUsed {var: Sxml.Var.t} =
+         case allValues var of
+             [] => false
+           | _ => true
+
       val destroy = fn () =>
-         (destroyConOrder ();
+         (destroyCaseInfo ();
+          destroyConOrder ();
           destroyTyconOrder ();
           destroyTypeOrder ();
           destroyLambdaFree ();
@@ -627,8 +684,9 @@ fun cfa {config: Config.t} : t =
           destroyTypeInfo ();
           destroyLambdaInfo ())
    in
-      {cfa = cfa, destroy = destroy}
+      {caseUsed=caseUsed, cfa=cfa, destroy=destroy, knownCon=knownCon, varUsed=varUsed}
    end
+
 val cfa = fn config =>
    Control.trace (Control.Detail, "allocCFA")
    (cfa config)

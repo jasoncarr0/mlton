@@ -14,7 +14,7 @@
  * of an unsound cfa), but there is otherwise no specialization with
  * respect to the cfa.
  *)
-functor TyTransform (S: TRANSFORM_STRUCTS): TRANSFORM =
+functor TyTransformCon (S: TRANSFORM_STRUCTS): TRANSFORM =
 struct
 
 open S
@@ -26,28 +26,30 @@ structure Globalize = Globalize(S)
 structure Config =
    struct
       datatype t = T of {globalizeOpt: bool, shrinkOpt: bool}
+      val init = T {globalizeOpt = true, shrinkOpt = true}
    end
 
 type t = {program: Sxml.Program.t,
           caseUsed: {test: Sxml.Var.t,
                      con: Sxml.Con.t} ->
-             bool,
+               bool,
           cfa: {arg: Sxml.Var.t,
                 argTy: Sxml.Type.t,
                 func: Sxml.Var.t,
                 res: Sxml.Var.t,
                 resTy: Sxml.Type.t} ->
-             Sxml.Lambda.t list,
+               Sxml.Lambda.t list,
           knownCon: {res: Sxml.Var.t} ->
-             {arg: Sxml.VarExp.t option,
-              con: Sxml.Con.t} option,
+               {arg: Sxml.VarExp.t option,
+                con: Sxml.Con.t} option,
           varUsed: {var: Sxml.Var.t} ->
-             bool} ->
-         {program: Ssa.Program.t,
-          destroy: unit -> unit}
+               bool} ->
+       {program: Ssa.Program.t,
+        destroy: unit -> unit}
 
 fun transform {config: Config.t}: t =
-   fn {program: Sxml.Program.t, cfa, ...} =>
+   fn {program: Sxml.Program.t,
+       caseUsed, cfa, knownCon, ...} =>
    let
       val Config.T {globalizeOpt, shrinkOpt} = config
       val Sxml.Program.T {datatypes, body, overflow} = program
@@ -284,10 +286,22 @@ fun transform {config: Config.t}: t =
          (case dec of
              Sxml.Dec.MonoVal {var, ty, exp} =>
                 let
+                   val known = knownCon {res=var}
                    val (cvar, cty) = convertBoundVar (var, ty)
                    val cdecs =
-                      [{var = cvar,
-                        exp = convertPrimExp {var = var, oty = ty, cty = cty, exp = exp}}]
+                      case known of
+                          NONE => 
+                            [{var = cvar,
+                              exp = convertPrimExp {var = var, oty = ty, cty = cty, exp = exp}}]
+                        | SOME {con, arg} => 
+                             case Var.new var of var' =>
+                            [{var = var',
+                              exp = convertPrimExp {var = var', oty = ty, cty = cty, exp = exp}},
+                             {var = cvar,
+                              exp = Ssa.DirectExp.conApp
+                               {con = con,
+                                args = convertConArg (arg, convertVarExp),
+                                ty = cty}}]
                 in
                    if isGlobal var
                       then (List.push (globals, cdecs); [])
@@ -365,24 +379,47 @@ fun transform {config: Config.t}: t =
                     ty = cty}
                 end
            | Sxml.PrimExp.Case {test, cases, default} =>
-                Ssa.DirectExp.casee
-                {test = convertVarExp test,
-                 cases = (case cases of
-                             Sxml.Cases.Con cases =>
-                                Ssa.DirectExp.Con
-                                (Vector.map
-                                 (cases, fn (Sxml.Pat.T {con, arg, ...}, e) =>
-                                  {con = con,
-                                   args = convertConArg (arg, convertBoundVar),
-                                   body = convertExp e}))
-                           | Sxml.Cases.Word (ws, cases) =>
-                                Ssa.DirectExp.Word
-                                (ws,
-                                 Vector.map
-                                 (cases, fn (w, e) =>
-                                  (w, convertExp e)))),
-                 default = Option.map (default, convertExp o #1),
-                 ty = cty}
+                (case cases of
+                  Sxml.Cases.Con cases =>
+                     let
+                        val msg = String.concat
+                                   ["unsound cfa:: ",
+                                    (Layout.toString o Layout.seq)
+                                    [Layout.str "val ",
+                                     Var.layout var,
+                                     Layout.str ": ",
+                                     Sxml.Type.layout oty,
+                                     Layout.str " = case ",
+                                     Sxml.VarExp.layout test]]
+                        val newCases = 
+                           (Vector.keepAllMap
+                              (cases, fn (Sxml.Pat.T {con, arg, ...}, e) =>
+                              if caseUsed {test=Sxml.VarExp.var test, con=con}
+                                 then SOME {con = con,
+                                            args = convertConArg (arg, convertBoundVar),
+                                            body = convertExp e}
+                                 else NONE))
+                     in
+                        Ssa.DirectExp.casee
+                        {test = convertVarExp test,
+                         cases = Ssa.DirectExp.Con newCases,
+                         default = (case default of
+                            SOME s => SOME (convertExp (#1 s))
+                          | NONE => if Vector.length newCases < Vector.length cases
+                                    then SOME (Ssa.DirectExp.bug msg)
+                                    else NONE),
+                         ty = cty}
+                     end
+                | Sxml.Cases.Word (ws, cases) =>
+                   Ssa.DirectExp.casee
+                   {test = convertVarExp test,
+                    cases = Ssa.DirectExp.Word
+                     (ws, 
+                      Vector.map
+                      (cases, fn (w, e) =>
+                       (w, convertExp e))),
+                    default = Option.map(default, convertExp o #1),
+                    ty = cty})
            | Sxml.PrimExp.ConApp {con, arg, ...} =>
                 Ssa.DirectExp.conApp
                 {con = con,
@@ -542,19 +579,6 @@ val transform = fn config =>
    Control.trace (Control.Pass, "TyTransform")
    (transform config)
 
-local
-   open Parse
-   infix 1 <|> >>=
-   infix 2 <&>
-   infix  3 <*> <* *>
-   infixr 4 <$> <$$> <$$$> <$
-   fun mkCfg (g, s) = {config=Config.T {globalizeOpt=g, shrinkOpt=s}}
-   val bool = true <$ str "true" <|> false <$ str "false"
-in
-fun scan _ = str "tytrans" *> str "(" *>
-   transform <$> mkCfg <$$> ((str "g:" *> bool <|> pure true) <*
-                             optional (str "," *> spaces),
-                             str "s:" *> bool <|> pure true) <* str ")"
-end
+fun scan _ = Parse.<$> ((fn _ => transform {config=Config.init}), Parse.str "tytranscon")
 
 end

@@ -19,13 +19,21 @@ signature CFA =
          end
 
       type t = {program: Sxml.Program.t} ->
-               {cfa: {arg: Sxml.Var.t,
+               {caseUsed: {test: Sxml.Var.t,
+                           con: Sxml.Con.t} ->
+                   bool,
+                cfa: {arg: Sxml.Var.t,
                       argTy: Sxml.Type.t,
                       func: Sxml.Var.t,
                       res: Sxml.Var.t,
                       resTy: Sxml.Type.t} ->
-                     Sxml.Lambda.t list,
-                destroy: unit -> unit}
+                   Sxml.Lambda.t list,
+                destroy: unit -> unit,
+                knownCon: {res: Sxml.Var.t} ->
+                   {arg: Sxml.VarExp.t option,
+                    con: Sxml.Con.t} option,
+                varUsed: {var: Sxml.Var.t} ->
+                   bool}
 
       val cfa: {config: Config.t} -> t
 
