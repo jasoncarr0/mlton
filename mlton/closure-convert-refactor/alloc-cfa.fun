@@ -108,7 +108,7 @@ structure AbsValSet = AbstractValueSet
 fun cfa {config: Config.t} : t =
    fn {program: Sxml.Program.t} =>
    let
-      val Sxml.Program.T {datatypes, body, ...} = program
+      val Sxml.Program.T {datatypes, body, overflow, ...} = program
 
       val {get = conOrder: Sxml.Con.t -> Order.t,
            rem = remConOrder} =
@@ -200,7 +200,8 @@ fun cfa {config: Config.t} : t =
        * could bind them in, so we'll just make a new instrumentation here *)
       val topLevelExn = newProxy ()
       val topLevelExnAddr = alloc (topLevelExn, Bind.HandleArg, newInst ())
-      val overflow = AbsValSet.singleton (AbsVal.ConApp {con=Sxml.Con.overflow, arg=NONE})
+      (* gets set once we first see the overflow dec *)
+      val overflowVal: AbsValSet.t option ref = ref NONE
 
       val {freeVars, freeRecVars, destroy = destroyLambdaFree} =
          LambdaFree.lambdaFree {program = program}
@@ -310,6 +311,7 @@ fun cfa {config: Config.t} : t =
                                          addrInfo formAddr)
 
                                      val boundVars = formAddr :: newFree @ newRec
+                                     val boundVars = raiseTo :: boundVars
 
                                     (* Adjust the instrumentation to consider the body of the lambda
                                      * At this point it's seen all the (re-)bindings *)
@@ -365,7 +367,7 @@ fun cfa {config: Config.t} : t =
                                                 val argAddrOpt = (case List.peek (!info, fn (con, _, _) =>
                                                    Option.exists (con, fn con => Sxml.Con.equals (con', con))) of
                                                    SOME (SOME _, argAddrOpt, _) => argAddrOpt
-                                                 | NONE => 
+                                                 | _ =>
                                                     let
                                                        val (newAddr, env, inst) = case arg of 
                                                            NONE => (NONE, env,
@@ -392,15 +394,19 @@ fun cfa {config: Config.t} : t =
                                                        val _ = List.push (caseInfo (Sxml.VarExp.var test), (inst, con'))
                                                     in
                                                        newAddr
-                                                    end
-                                                 (* Really, really shouldn't happen *)
-                                                 | _ => Error.bug "allocCFA.loopPrimExp: Case")
+                                                    end)
                                                 val _ = 
                                                    (case (arg', argAddrOpt) of
                                                        (NONE, NONE) => ()
                                                      | (SOME (_, argAddr), SOME newAddr) =>
                                                           AbsValSet.<= (addrInfo argAddr, addrInfo newAddr)
-                                                     | _ => Error.bug "allocCFA.loopPrimExp: Case")
+                                                     | _ => Error.bug ("allocCFA.loopPrimExp: Strange case args:" ^
+                                                            Layout.toString (Layout.seq
+                                                           [Option.layout (Addr.layout o #2) arg',
+                                                            Layout.str " vs ",
+                                                            Option.layout Addr.layout argAddrOpt,
+                                                            Layout.str " on ",
+                                                            Sxml.Con.layout con'])))
                                              in
                                                 ()
                                              end
@@ -442,6 +448,8 @@ fun cfa {config: Config.t} : t =
                    res
                 end
            | Sxml.PrimExp.ConApp {con, arg, ...} =>
+                let
+                   val res =
                    AbsValSet.singleton (AbsVal.ConApp {con=con,
                    arg=(case arg of
                        NONE => NONE
@@ -455,6 +463,13 @@ fun cfa {config: Config.t} : t =
                       in
                          SOME (arg', newAddr)
                       end)})
+                   (* this will be happen exactly once in any sml program *)
+                   val _ = if Option.exists (overflow, fn v => Sxml.Var.equals (v, var))
+                           then overflowVal := (SOME res)
+                           else ()
+                in
+                   res
+                end
            | Sxml.PrimExp.Const _ =>
                 typeInfo ty
            | Sxml.PrimExp.Handle {try, catch = (catchVar, _), handler} =>
@@ -468,7 +483,7 @@ fun cfa {config: Config.t} : t =
                    val catchInst = postBind (inst, {var=catchVar, bind=Bind.HandleArg})
                    val catchInst = descend (catchInst,
                      {var=var, exp=exp, subExp = SubExp.HandleCatch})
-                   val _ = AbsValSet.<= (loopExp (catchInst, (catchVar, raiseTo) :: env, raiseTo, handler), res)
+                   val _ = AbsValSet.<= (loopExp (catchInst, (catchVar, newRaiseTo) :: env, raiseTo, handler), res)
                 in
                    res
                 end
@@ -568,7 +583,9 @@ fun cfa {config: Config.t} : t =
                                                            AbsVal.ConApp {con= Sxml.Con.falsee, arg= NONE}]
                                   else (typeInfo ty), res)
                                val _ = if Sxml.Prim.mayOverflow prim
-                                       then AbsValSet.<= (overflow, addrInfo raiseTo)
+                                       then (case !overflowVal of
+                                           SOME v => AbsValSet.<= (v, addrInfo raiseTo)
+                                         | NONE => ())
                                        else ()
                             in
                                ()
