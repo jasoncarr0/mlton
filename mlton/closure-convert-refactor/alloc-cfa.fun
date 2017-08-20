@@ -191,15 +191,15 @@ fun cfa {config: Config.t} : t =
          Property.destGet
          (Sxml.Type.plist,
           Property.initFun (AbsValSet.singleton o AbsVal.Base))
-      val {get = lambdaInfo: Sxml.Lambda.t -> ((Addr.t list) * AbsValSet.t) list ref,
+      val {get = lambdaInfo: Sxml.Lambda.t -> (Addr.t list * (AbsValSet.t * AbsValSet.t)) list ref,
            destroy = destroyLambdaInfo} =
          Property.destGet
          (Sxml.Lambda.plist,
           Property.initFun (fn _ => ref []))
       (* We never use postBind with these since there's no handle block we
-       * could bind them in, so we'll just make a new instrumentation here *)
-      val topLevelExn = newProxy ()
-      val topLevelExnAddr = alloc (topLevelExn, Bind.HandleArg, newInst ())
+       * could bind them in, so we won't need to make an address *)
+      val topLevelExn = AbsValSet.empty ()
+
       (* gets set once we first see the overflow dec *)
       val overflowVal: AbsValSet.t option ref = ref NONE
 
@@ -218,7 +218,7 @@ fun cfa {config: Config.t} : t =
       fun envExpValue (env, v) = envValue (env, Sxml.VarExp.var v)
       type env = (Sxml.Var.t * Addr.t) list
 
-      fun loopExp (inst: Inst.t, env, raiseTo: Addr.t, exp: Sxml.Exp.t): AbsValSet.t =
+      fun loopExp (inst: Inst.t, env, raiseTo: AbsValSet.t, exp: Sxml.Exp.t): AbsValSet.t =
          let
             val {decs, result} = Sxml.Exp.dest exp
             val resultVar = Sxml.VarExp.var result
@@ -227,8 +227,8 @@ fun cfa {config: Config.t} : t =
          in
             envValue(env', resultVar)
          end
-      and loopExp' (inst: Inst.t, env, raiseTo: Addr.t, exp: Sxml.Exp.t): unit = ignore (loopExp (inst, env, raiseTo, exp))
-      and loopDec (inst: Inst.t, env, raiseTo: Addr.t, dec: Sxml.Dec.t): (Inst.t * env) =
+      and loopExp' (inst: Inst.t, env, raiseTo: AbsValSet.t, exp: Sxml.Exp.t): unit = ignore (loopExp (inst, env, raiseTo, exp))
+      and loopDec (inst: Inst.t, env, raiseTo: AbsValSet.t, dec: Sxml.Dec.t): (Inst.t * env) =
          (case dec of
             Sxml.Dec.Fun {decs, ...} =>
                let
@@ -248,7 +248,7 @@ fun cfa {config: Config.t} : t =
                end
            | Sxml.Dec.MonoVal bind => loopBind (inst, env, raiseTo, bind)
            | _ => Error.bug "allocCFA.loopDec: strange dec")
-      and loopBind (inst, env, raiseTo: Addr.t, bind as {var, exp, ty, ...}): (Inst.t * env) =
+      and loopBind (inst, env, raiseTo: AbsValSet.t, bind as {var, exp, ty, ...}): (Inst.t * env) =
          let
             val addr = alloc (var, Bind.LetVal (exp, ty), inst)
             val _ = AbsValSet.<= (loopPrimExp (inst, env, raiseTo, bind), addrInfo addr)
@@ -311,32 +311,33 @@ fun cfa {config: Config.t} : t =
                                          addrInfo formAddr)
 
                                      val boundVars = formAddr :: newFree @ newRec
-                                     val boundVars = raiseTo :: boundVars
 
                                     (* Adjust the instrumentation to consider the body of the lambda
                                      * At this point it's seen all the (re-)bindings *)
                                      val inst = descend (inst, {var=var, exp=exp, subExp=SubExp.LambdaBody lambda'})
 
-                                     val resVal =
+                                     val (raiseVal, resVal) =
                                         (case List.peek (!(lambdaInfo lambda'),
                                            fn (bound', _) => List.equals (boundVars, bound', Addr.equals))
                                         of
-                                           SOME (_, v1) => v1
+                                           SOME (_, vals) => vals
                                          | NONE =>
                                               let 
                                                  (* determinism ensures that all values that flow
                                                   * into res will flow into the other lambda
                                                   * and isolation of res ensures these are the
                                                   * only values *)
-                                                 val _ = List.push (lambdaInfo lambda', (boundVars, res))
-                                                 val v1 = loopExp (inst, (arg', formAddr)::env'', raiseTo, body')
+                                                 val newRaise = AbsValSet.empty ()
+                                                 val _ = List.push (lambdaInfo lambda', (boundVars, (newRaise, res)))
+                                                 val newVal = loopExp (inst, (arg', formAddr)::env'', newRaise, body')
                                                  val _ = lambdaInfo lambda' := List.map (!(lambdaInfo lambda'),
                                                     fn (bound', x) => if List.equals (boundVars, bound', Addr.equals)
-                                                       then (bound', v1)
+                                                       then (bound', (newRaise, newVal))
                                                     else (bound', x))
                                               in
-                                                 v1
+                                                 (newRaise, newVal)
                                               end)
+                                     val _ = AbsValSet.<= (raiseVal, raiseTo)
                                      val _ = AbsValSet.<= (resVal, res)
                                   in
                                      ()
@@ -478,7 +479,7 @@ fun cfa {config: Config.t} : t =
                    val newRaiseTo = alloc (catchVar, Bind.HandleArg, inst)
                    val tryInst = descend (inst,
                      {var=var, exp=exp, subExp = SubExp.HandleTry})
-                   val _ = AbsValSet.<= (loopExp (tryInst, env, newRaiseTo, try), res)
+                   val _ = AbsValSet.<= (loopExp (tryInst, env, addrInfo newRaiseTo, try), res)
 
                    val catchInst = postBind (inst, {var=catchVar, bind=Bind.HandleArg})
                    val catchInst = descend (catchInst,
@@ -584,7 +585,7 @@ fun cfa {config: Config.t} : t =
                                   else (typeInfo ty), res)
                                val _ = if Sxml.Prim.mayOverflow prim
                                        then (case !overflowVal of
-                                           SOME v => AbsValSet.<= (v, addrInfo raiseTo)
+                                           SOME v => AbsValSet.<= (v, raiseTo)
                                          | NONE => ())
                                        else ()
                             in
@@ -597,7 +598,7 @@ fun cfa {config: Config.t} : t =
                 typeInfo ty
            | Sxml.PrimExp.Raise {exn, ...} =>
                 let
-                   val _ = AbsValSet.<= (envExpValue (env, exn), addrInfo raiseTo)
+                   val _ = AbsValSet.<= (envExpValue (env, exn), raiseTo)
                 in
                    AbsValSet.empty ()
                 end
@@ -621,7 +622,7 @@ fun cfa {config: Config.t} : t =
                 )
 
 
-      val _ = loopExp' (newInst (), [], topLevelExnAddr, body)
+      val _ = loopExp' (newInst (), [], topLevelExn, body)
 
       val _ =
          Control.diagnostics
