@@ -48,7 +48,7 @@ structure AbstractValue =
          Array of Addr.t
        | Base of Sxml.Type.t
        | ConApp of {con: Sxml.Con.t, arg: (Sxml.Var.t * Addr.t) option}
-       | Lambda of (Sxml.Var.t * Addr.t) list * Sxml.Lambda.t * Sxml.Type.t
+       | Lambda of (Sxml.Var.t * Addr.t) vector * Sxml.Lambda.t * Sxml.Type.t
        | Ref of Addr.t
        | Tuple of (Sxml.Var.t * Addr.t) vector
        | Vector of Addr.t
@@ -64,10 +64,10 @@ structure AbstractValue =
                Sxml.Var.equals (var, var') andalso
                Addr.equals (addr, addr'))
           | (Lambda (env, lam, _), Lambda (env', lam', _)) =>
-               Sxml.Lambda.equals (lam, lam') andalso
-               List.equals (env, env', fn ((var, addr), (var', addr')) =>
+               Vector.equals (env, env', fn ((var, addr), (var', addr')) =>
                   Sxml.Var.equals (var, var') andalso
-                  Addr.equals (addr, addr'))
+                  Addr.equals (addr, addr')) andalso
+               Sxml.Lambda.equals (lam, lam')
           | (Ref p, Ref p') => Addr.equals (p, p')
           | (Tuple xs, Tuple xs') =>
                Vector.equals (xs, xs', fn ((x1, a1), (x2, a2)) => 
@@ -239,7 +239,9 @@ fun cfa {config: Config.t} : t =
                   let
                      val lamExp = Sxml.PrimExp.Lambda lambda
                      val addr = envGet (env, var)
-                     val _ = AbsValSet.<< (AbsVal.Lambda (env, lambda, ty), addrInfo addr)
+                     val freeVars = Vector.concat [freeVars lambda, freeRecVars lambda]
+                     val freeVars = Vector.map(freeVars, fn v => (v, envGet(env, v)))
+                     val _ = AbsValSet.<< (AbsVal.Lambda (freeVars, lambda, ty), addrInfo addr)
                    in
                       (postBind (inst, {var=var, bind=Bind.LetVal (lamExp, ty)}))
                    end)
@@ -264,61 +266,49 @@ fun cfa {config: Config.t} : t =
                    val _ = AbsValSet.addHandler
                            (envExpValue (env, func), fn v =>
                             case v of
-                               AbsVal.Lambda (env', lambda', lamty) =>
+                               AbsVal.Lambda (frees, lambda', lamty) =>
                                   if not (
                                     (case Sxml.Type.deArrow lamty of 
                                         (_, res) => Sxml.Type.equals (res, ty) ))
                                         then ()
                                   else
                                   let
-                                     val {arg = arg', body = body', ...} = Sxml.Lambda.dest lambda'
-                                     fun rebind x =
+                                     val {arg = formArg, body = body', ...} = Sxml.Lambda.dest lambda'
+                                     fun rebind (v, oldAddr) =
                                         let
-                                           val oldAddr = envGet (env', x)
-                                           val newAddr = alloc (x, Bind.AppFree (var, lambda', oldAddr), inst)
+                                           val newAddr = alloc (v, Bind.AppFree (var, lambda', oldAddr), inst)
                                            val _ = AbsValSet.<= (addrInfo oldAddr,
                                                                  addrInfo newAddr)
                                         in
-                                           (x, newAddr)
+                                           (v, newAddr)
                                         end
-                                        (* stateful *)
-                                     val newFree = Vector.toListMap (freeVars lambda', rebind)
-                                     val newRec = Vector.toListMap (freeRecVars lambda', rebind)
-
-                                     val env'' = []
-                                     val env'' = List.fold (newFree, env'', op ::)
-                                     val env'' = List.fold (newRec, env'', op ::)
-
-                                     val newFree = List.map(newFree, #2)
-                                     val newRec = List.map(newRec, #2)
+                                     val newFree = Vector.toListMap (frees, rebind)
 
                                      val argAddr = envGet (env, Sxml.VarExp.var arg)
-                                     val formAddr = alloc(arg', Bind.AppArg (var, lambda', argAddr), inst)
-
-                                     (* update the instrumentation, for all the new simultaneous bindings
-                                      * use the original addresses to give consistent info *)
-                                     val inst = Vector.fold (freeVars lambda', inst,
-                                       fn (x, inst) => postBind (inst,
-                                          {var=x, bind=Bind.AppFree (var, lambda', envGet (env', x))}))
-                                     val inst = Vector.fold (freeRecVars lambda', inst,
-                                       fn (x, inst) => postBind (inst,
-                                          {var=x, bind=Bind.AppFree (var, lambda', envGet (env', x))}))
-                                     (* And use postbind for the lambda argument *)
-                                     val inst = postBind (inst, {var=arg', bind=Bind.AppArg (var, lambda', argAddr)})
-
+                                     val formAddr = alloc(formArg, Bind.AppArg (var, lambda', argAddr), inst)
                                      val _ = AbsValSet.<=
                                         (addrInfo argAddr,
                                          addrInfo formAddr)
 
-                                     val boundVars = formAddr :: newFree @ newRec
+                                     val newEnv = (formArg, formAddr) :: newFree
 
-                                    (* Adjust the instrumentation to consider the body of the lambda
-                                     * At this point it's seen all the (re-)bindings *)
+                                     (* update the instrumentation, for all the new simultaneous bindings
+                                      * use the original addresses to give consistent info *)
+                                     val inst = Vector.fold (frees, inst,
+                                       fn ((v, addr), inst) => postBind (inst,
+                                          {var=v, bind=Bind.AppFree (var, lambda', addr)}))
+                                     val inst = postBind (inst, {var=formArg, bind=Bind.AppArg (var, lambda', argAddr)})
+
+
+                                     val boundAddrs = List.map (newEnv, #2)
+
+                                     (* Adjust the instrumentation to consider the body of the lambda
+                                      * At this point it's seen all the (re-)bindings *)
                                      val inst = descend (inst, {var=var, exp=exp, subExp=SubExp.LambdaBody lambda'})
 
                                      val (raiseVal, resVal) =
                                         (case List.peek (!(lambdaInfo lambda'),
-                                           fn (bound', _) => List.equals (boundVars, bound', Addr.equals))
+                                           fn (bound', _) => List.equals (boundAddrs, bound', Addr.equals))
                                         of
                                            SOME (_, vals) => vals
                                          | NONE =>
@@ -328,10 +318,10 @@ fun cfa {config: Config.t} : t =
                                                   * and isolation of res ensures these are the
                                                   * only values *)
                                                  val newRaise = AbsValSet.empty ()
-                                                 val _ = List.push (lambdaInfo lambda', (boundVars, (newRaise, res)))
-                                                 val newVal = loopExp (inst, (arg', formAddr)::env'', newRaise, body')
+                                                 val _ = List.push (lambdaInfo lambda', (boundAddrs, (newRaise, res)))
+                                                 val newVal = loopExp (inst, newEnv, newRaise, body')
                                                  val _ = lambdaInfo lambda' := List.map (!(lambdaInfo lambda'),
-                                                    fn (bound', x) => if List.equals (boundVars, bound', Addr.equals)
+                                                    fn (bound', x) => if List.equals (boundAddrs, bound', Addr.equals)
                                                        then (bound', (newRaise, newVal))
                                                     else (bound', x))
                                               in
@@ -489,7 +479,12 @@ fun cfa {config: Config.t} : t =
                    res
                 end
            | Sxml.PrimExp.Lambda lambda =>
-                AbsValSet.singleton (AbsVal.Lambda (env, lambda, ty))
+                let
+                   val freeVars = Vector.concat [freeVars lambda, freeRecVars lambda]
+                   val freeVars = Vector.map(freeVars, fn v => (v, envGet(env, v)))
+                in
+                   AbsValSet.singleton (AbsVal.Lambda (freeVars, lambda, ty))
+                end
            | Sxml.PrimExp.PrimApp {prim, args, ...} =>
                 let
                    val res = AbsValSet.empty ()
