@@ -18,7 +18,8 @@ structure Config =
    end
 
 type t = {program: Sxml.Program.t} ->
-         {caseUsed: {test: Sxml.Var.t,
+         {canRaise: Sxml.Lambda.t -> bool,
+          caseUsed: {res: Sxml.Var.t,
                      con: Sxml.Con.t} ->
              bool,
           cfa: {arg: Sxml.Var.t,
@@ -277,6 +278,7 @@ fun cfa {config: Config.t}: t =
             Value.Lambdas lambdas => lambdas
           | _ => Error.bug "OrigCFA.cfa: non-lambda"
 
+      fun canRaise _ = true
       fun caseUsed _ = true
       fun knownCon _ = NONE
       fun varUsed _ = true
@@ -298,7 +300,7 @@ fun cfa {config: Config.t}: t =
            handleBoundVar = (fn (var, _, _) => remVarInfo var),
            handleVarExp = ignore})
    in
-      {caseUsed=caseUsed, cfa=cfa, destroy=destroy,
+      {canRaise=canRaise, caseUsed=caseUsed, cfa=cfa, destroy=destroy,
        knownCon=knownCon, varUsed=varUsed}
    end
 val cfa = fn config =>

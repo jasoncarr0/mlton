@@ -87,7 +87,7 @@ fun closureConvert (program: Sxml.Program.t): Ssa.Program.t =
       val cfa =
          Control.trace (Control.Pass, "cfa: " ^ !cfaString) (!cfaRef)
 
-      val {caseUsed, cfa, destroy = destroyCFA, knownCon, varUsed, ...} =
+      val {canRaise, caseUsed, cfa, destroy = destroyCFA, knownCon, varUsed} =
          cfa {program = program}
 
       val _ =
@@ -158,8 +158,8 @@ fun closureConvert (program: Sxml.Program.t): Ssa.Program.t =
          Control.trace (Control.Pass, "trans: " ^ !transString) (!transRef)
 
       val {program, destroy = destroyTransform, ...} =
-         transform {program=program, caseUsed=caseUsed, cfa=cfa,
-                    knownCon=knownCon, varUsed=varUsed}
+         transform {program=program, canRaise=canRaise, caseUsed=caseUsed, 
+                    cfa=cfa, knownCon=knownCon, varUsed=varUsed}
 
       val _ = destroyCFA ()
       val _ = destroyTransform ()

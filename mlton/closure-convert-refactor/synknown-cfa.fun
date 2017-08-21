@@ -13,7 +13,8 @@ struct
 open S
 
 type t = {program: Sxml.Program.t} ->
-         {caseUsed: {test: Sxml.Var.t,
+         {canRaise: Sxml.Lambda.t -> bool,
+          caseUsed: {res: Sxml.Var.t,
                      con: Sxml.Con.t} ->
              bool,
           cfa: {arg: Sxml.Var.t,
@@ -34,8 +35,8 @@ structure Config = struct type t = {baseCFA: t} end
 fun cfa {config = {baseCFA}: Config.t}: t =
    fn {program: Sxml.Program.t} =>
    let
-      val {caseUsed=caseUsed, cfa=baseCFA, destroy=destroyBaseCFA,
-           knownCon=knownCon, varUsed=varUsed} =
+      val {canRaise=canRaise, caseUsed=caseUsed, cfa=baseCFA, 
+           destroy=destroyBaseCFA, knownCon=knownCon, varUsed=varUsed} =
          baseCFA {program = program}
 
       val Sxml.Program.T {body, ...} = program
@@ -74,7 +75,7 @@ fun cfa {config = {baseCFA}: Config.t}: t =
          (destroyBaseCFA ();
           destroyVarInfo ())
    in
-      {caseUsed=caseUsed, cfa=cfa, destroy=destroy,
+      {canRaise=canRaise, caseUsed=caseUsed, cfa=cfa, destroy=destroy,
        knownCon=knownCon, varUsed=varUsed}
    end
 val cfa = fn config =>

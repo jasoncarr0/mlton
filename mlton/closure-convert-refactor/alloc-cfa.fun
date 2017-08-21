@@ -14,7 +14,8 @@ open Allocator
 structure Allocator = Allocator
 
 type t = {program: Sxml.Program.t} ->
-           {caseUsed: {test: Sxml.Var.t,
+           {canRaise: Sxml.Lambda.t -> bool,
+            caseUsed: {res: Sxml.Var.t,
                        con: Sxml.Con.t} ->
                bool,
             cfa: {arg: Sxml.Var.t,
@@ -382,7 +383,7 @@ fun cfa {config: Config.t} : t =
                                                              if Option.exists (con, fn con => Sxml.Con.equals (con', con))
                                                                 then (con, a, resVal)
                                                              else (con, a, v))
-                                                       val _ = List.push (caseInfo (Sxml.VarExp.var test), (inst, con'))
+                                                       val _ = List.push (caseInfo var, (inst, con'))
                                                     in
                                                        newAddr
                                                     end)
@@ -624,9 +625,9 @@ fun cfa {config: Config.t} : t =
          (fn display =>
           ((HashSet.foreach (caseVars,
           fn var => (display o Layout.seq)
-             [Layout.str "case ",
+             [Layout.str "val ",
               Sxml.Var.layout var,
-              Layout.str " of ",
+              Layout.str " = case of ",
               List.layout (fn (inst, con) =>
                  Layout.seq
                     [Layout.str "(",
@@ -646,6 +647,14 @@ fun cfa {config: Config.t} : t =
          (List.concatMap (HashSet.toList (varAddrs var),
             fn s => AbsValSet.getElements (addrInfo s)),
           AbsVal.equals)
+      fun canRaise lam = List.exists 
+         (!(lambdaInfo lam),
+          fn (_, (raiseVal, _)) => List.exists
+             (AbsValSet.getElements raiseVal,
+              fn v => case v of
+                  AbsVal.ConApp _ => true
+                | _ => false))
+
 
       val cfa : {arg: Sxml.Var.t,
                  argTy: Sxml.Type.t,
@@ -661,9 +670,9 @@ fun cfa {config: Config.t} : t =
                   else NONE
                 | _ => NONE),
                   Sxml.Lambda.equals)
-      fun caseUsed {test: Sxml.Var.t,
+      fun caseUsed {res: Sxml.Var.t,
                     con: Sxml.Con.t} =
-         List.exists (!(caseInfo test),
+         List.exists (!(caseInfo res),
             fn (_, con') => Sxml.Con.equals (con, con'))
       val knownCon: {res: Sxml.Var.t} ->
              {arg: Sxml.VarExp.t option,
@@ -692,12 +701,12 @@ fun cfa {config: Config.t} : t =
           destroyTyconOrder ();
           destroyTypeOrder ();
           destroyLambdaFree ();
+          destroyLambdaInfo ();
           destroyAddrInfo ();
           destroyVarAddrs ();
-          destroyTypeInfo ();
-          destroyLambdaInfo ())
+          destroyTypeInfo ())
    in
-      {caseUsed=caseUsed, cfa=cfa, destroy=destroy, knownCon=knownCon, varUsed=varUsed}
+      {canRaise=canRaise, caseUsed=caseUsed, cfa=cfa, destroy=destroy, knownCon=knownCon, varUsed=varUsed}
    end
 
 val cfa = fn config =>

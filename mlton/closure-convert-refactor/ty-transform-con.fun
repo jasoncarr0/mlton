@@ -30,7 +30,8 @@ structure Config =
    end
 
 type t = {program: Sxml.Program.t,
-          caseUsed: {test: Sxml.Var.t,
+          canRaise: Sxml.Lambda.t -> bool,
+          caseUsed: {res: Sxml.Var.t,
                      con: Sxml.Con.t} ->
                bool,
           cfa: {arg: Sxml.Var.t,
@@ -49,7 +50,7 @@ type t = {program: Sxml.Program.t,
 
 fun transform {config: Config.t}: t =
    fn {program: Sxml.Program.t,
-       caseUsed, cfa, knownCon, ...} =>
+       canRaise, caseUsed, cfa, knownCon, varUsed, ...} =>
    let
       val Config.T {globalizeOpt, shrinkOpt} = config
       val Sxml.Program.T {datatypes, body, overflow} = program
@@ -235,22 +236,26 @@ fun transform {config: Config.t}: t =
          if shrinkOpt
             then Ssa.shrinkFunction {globals = Vector.new0 ()}
             else fn f => f
-      fun addFunction {args, body, isMain, mayInline, name, resTy} =
+      fun addFunction {args, body, lambda, mayInline, name, resTy} =
          let
             val (start, blocks) =
                Ssa.DirectExp.linearize
-               (body, if isMain then Ssa.Handler.Dead else Ssa.Handler.Caller)
+               (body, if Option.isNone lambda then Ssa.Handler.Dead else Ssa.Handler.Caller)
             val f =
                shrinkFunction
                (Ssa.Function.new {args = args,
                                   blocks = Vector.fromList blocks,
                                   mayInline = mayInline,
                                   name = name,
-                                  raises = if isMain then NONE else raises,
+                                  raises = (case lambda of
+                                      NONE => NONE
+                                    | SOME lam => if canRaise lam
+                                       then raises
+                                       else raises (*NONE*)),
                                   returns = SOME (Vector.new1 resTy),
                                   start = start})
             val f =
-               if isMain
+               if Option.isNone lambda
                   then Ssa.Function.profile (f, SourceInfo.main)
                   else f
          in
@@ -392,19 +397,21 @@ fun transform {config: Config.t}: t =
                                      Layout.str " = case ",
                                      Sxml.VarExp.layout test]]
                         val newCases = 
-                           (Vector.keepAllMap
-                              (cases, fn (Sxml.Pat.T {con, arg, ...}, e) =>
-                              if caseUsed {test=Sxml.VarExp.var test, con=con}
+                              Vector.keepAllMap (cases, fn (Sxml.Pat.T {con, arg, ...}, e) =>
+                              if caseUsed {res=var, con=con}
                                  then SOME {con = con,
                                             args = convertConArg (arg, convertBoundVar),
                                             body = convertExp e}
-                                 else NONE))
+                                 else NONE)
+                        val defaultExp = Option.map (default, fn (s, _) => convertExp s)
+                        (* if there's only one possibility and it doesn't need
+                         * the argument, then we can remove the case entirely *)
                      in
                         Ssa.DirectExp.casee
                         {test = convertVarExp test,
                          cases = Ssa.DirectExp.Con newCases,
-                         default = (case default of
-                            SOME s => SOME (convertExp (#1 s))
+                         default = (case defaultExp of
+                            SOME e => SOME e
                           | NONE => if Vector.length newCases < Vector.length cases
                                     then SOME (Ssa.DirectExp.bug msg)
                                     else NONE),
@@ -428,11 +435,15 @@ fun transform {config: Config.t}: t =
            | Sxml.PrimExp.Const c =>
                 Ssa.DirectExp.const c
            | Sxml.PrimExp.Handle {try, catch, handler} =>
-                Ssa.DirectExp.handlee
-                {try = convertExp try,
-                 catch = convertBoundVar catch,
-                 handler = convertExp handler,
-                 ty = cty}
+                if varUsed {var=(#1 catch)}
+                then
+                   Ssa.DirectExp.handlee
+                   {try = convertExp try,
+                    catch = convertBoundVar catch,
+                    handler = convertExp handler,
+                    ty = cty}
+                else
+                   convertExp try
            | Sxml.PrimExp.Lambda lambda =>
                 let
                    val _ = convertLambda {lambda = lambda, recs = Vector.new0 ()}
@@ -531,7 +542,7 @@ fun transform {config: Config.t}: t =
               in
                  addFunction {args = args,
                               body = body,
-                              isMain = false,
+                              lambda = SOME lambda,
                               mayInline = mayInline,
                               name = func,
                               resTy = resTy}
@@ -542,8 +553,8 @@ fun transform {config: Config.t}: t =
       val () =
          addFunction {args = Vector.new0 (),
                       body = convertExp body,
-                      isMain = true,
                       mayInline = false,
+                      lambda = NONE,
                       name = main,
                       resTy = Ssa.Type.unit}
       val globals =

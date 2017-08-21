@@ -11,7 +11,8 @@ struct
 open S
 
 type t = {program: Sxml.Program.t} ->
-         {caseUsed: {test: Sxml.Var.t,
+         {canRaise: Sxml.Lambda.t -> bool,
+          caseUsed: {res: Sxml.Var.t,
                      con: Sxml.Con.t} ->
              bool,
           cfa: {arg: Sxml.Var.t,
@@ -39,9 +40,9 @@ fun cfa {config = {baseCFAs}: Config.t}: t =
          (List.unzip o List.map)
          (baseCFAs, fn cfa =>
           let
-             val {caseUsed, cfa, destroy, knownCon, varUsed} = cfa {program = program}
+             val {canRaise, caseUsed, cfa, destroy, knownCon, varUsed} = cfa {program = program}
           in
-             ({caseUsed=caseUsed, cfa=cfa, knownCon=knownCon, varUsed=varUsed},
+             ({canRaise=canRaise, caseUsed=caseUsed, cfa=cfa, knownCon=knownCon, varUsed=varUsed},
                destroy)
           end)
 
@@ -61,22 +62,20 @@ fun cfa {config = {baseCFAs}: Config.t}: t =
          (baseCFAs, #cfa baseCFA0 call, fn (baseCFA, lambdas) =>
           intersect (lambdas, #cfa baseCFA call))
 
-      val caseUsed =
-         fn info => List.forall (baseCFAs, fn baseCFA =>
-            #caseUsed baseCFA info)
+      fun forallCFAs p = fn info => List.forall (baseCFAs, fn baseCFA => p baseCFA info)
+      val canRaise = forallCFAs (#canRaise)
+      val caseUsed = forallCFAs (#caseUsed)
       val knownCon =
          fn info => List.peekMap (baseCFAs, fn baseCFA =>
             #knownCon baseCFA info)
-      val varUsed =
-         fn info => List.forall (baseCFAs, fn baseCFA =>
-            #varUsed baseCFA info)
+      val varUsed = forallCFAs (#varUsed)
 
       val destroy = fn () =>
          List.foreach
          (destroyBaseCFAs, fn destroyBaseCFA =>
           destroyBaseCFA ())
    in
-      {caseUsed=caseUsed, cfa=cfa, destroy=destroy,
+      {canRaise=canRaise, caseUsed=caseUsed, cfa=cfa, destroy=destroy,
        knownCon=knownCon, varUsed=varUsed}
    end
 val cfa = fn config =>

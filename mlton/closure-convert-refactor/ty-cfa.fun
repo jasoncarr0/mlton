@@ -16,7 +16,8 @@ open S
 structure Config = struct type t = unit end
 
 type t = {program: Sxml.Program.t} ->
-         {caseUsed: {test: Sxml.Var.t,
+         {canRaise: Sxml.Lambda.t -> bool,
+          caseUsed: {res: Sxml.Var.t,
                      con: Sxml.Con.t} ->
              bool,
           cfa: {arg: Sxml.Var.t,
@@ -62,6 +63,7 @@ fun cfa (_: {config: Config.t}): t =
          fn {argTy, resTy, ...} =>
          ! (arrowInfo (Sxml.Type.arrow (argTy, resTy)))
 
+      fun canRaise _ = true
       fun caseUsed _ = true
       fun knownCon _ = NONE
       fun varUsed _ = true
@@ -69,7 +71,7 @@ fun cfa (_: {config: Config.t}): t =
       val destroy = fn () =>
          destroyArrowInfo ()
    in
-      {caseUsed=caseUsed, cfa=cfa, destroy=destroy,
+      {canRaise=canRaise, caseUsed=caseUsed, cfa=cfa, destroy=destroy,
        knownCon=knownCon, varUsed=varUsed}
    end
 val cfa = fn config =>

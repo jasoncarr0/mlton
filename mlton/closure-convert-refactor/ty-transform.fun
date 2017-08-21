@@ -29,7 +29,8 @@ structure Config =
    end
 
 type t = {program: Sxml.Program.t,
-          caseUsed: {test: Sxml.Var.t,
+          canRaise: Sxml.Lambda.t -> bool,
+          caseUsed: {res: Sxml.Var.t,
                      con: Sxml.Con.t} ->
              bool,
           cfa: {arg: Sxml.Var.t,
