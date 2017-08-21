@@ -296,7 +296,7 @@ fun transform {config: Config.t}: t =
                         | SOME {con, arg} => 
                              case Var.new var of var' =>
                             [{var = var',
-                              exp = convertPrimExp {var = var', oty = ty, cty = cty, exp = exp}},
+                              exp = convertPrimExp {var = var, oty = ty, cty = cty, exp = exp}},
                              {var = cvar,
                               exp = Ssa.DirectExp.conApp
                                {con = con,
