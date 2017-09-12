@@ -254,7 +254,7 @@ structure AbsVal = AbstractValue
 
 fun transform {config: Config.t}: t =
    fn {program: Sxml.Program.t,
-       canRaise, caseUsed, cfa, knownCon, varUsed, ...} =>
+       canRaise=_, caseUsed, cfa, knownCon, varUsed, ...} =>
    let
       val Config.T {globalizeOpt, shrinkOpt} = config
       val Sxml.Program.T {datatypes, body, overflow} = program
