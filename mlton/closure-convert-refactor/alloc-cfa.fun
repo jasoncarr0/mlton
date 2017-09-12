@@ -365,11 +365,11 @@ fun cfa {config: Config.t} : t =
                                                            NONE => (NONE, env,
                                                             descend (inst,
                                                                {var=var, exp=exp, subExp=SubExp.CaseBody (SOME (con', NONE))}))
-                                                         | SOME (arg, _) => 
+                                                         | SOME (arg, argTy) =>
                                                              let
-                                                                val addr = alloc (arg, Bind.CaseArg con', inst)
+                                                                val addr = alloc (arg, Bind.CaseArg (con', argTy), inst)
                                                                 val env' = (arg, addr) :: env
-                                                                val inst = postBind (inst, {var=arg, bind=Bind.CaseArg con'})
+                                                                val inst = postBind (inst, {var=arg, bind=Bind.CaseArg (con', argTy)})
                                                                 val inst = descend (inst,
                                                                    {var=var, exp=exp, subExp=SubExp.CaseBody (SOME (con', SOME arg)) })
                                                              in
@@ -464,15 +464,15 @@ fun cfa {config: Config.t} : t =
                 end
            | Sxml.PrimExp.Const _ =>
                 typeInfo ty
-           | Sxml.PrimExp.Handle {try, catch = (catchVar, _), handler} =>
+           | Sxml.PrimExp.Handle {try, catch = (catchVar, catchTy), handler} =>
                 let
                    val res = AbsValSet.empty ()
-                   val newRaiseTo = alloc (catchVar, Bind.HandleArg, inst)
+                   val newRaiseTo = alloc (catchVar, Bind.HandleArg catchTy, inst)
                    val tryInst = descend (inst,
                      {var=var, exp=exp, subExp = SubExp.HandleTry})
                    val _ = AbsValSet.<= (loopExp (tryInst, env, addrInfo newRaiseTo, try), res)
 
-                   val catchInst = postBind (inst, {var=catchVar, bind=Bind.HandleArg})
+                   val catchInst = postBind (inst, {var=catchVar, bind=Bind.HandleArg catchTy})
                    val catchInst = descend (catchInst,
                      {var=var, exp=exp, subExp = SubExp.HandleCatch})
                    val _ = AbsValSet.<= (loopExp (catchInst, (catchVar, newRaiseTo) :: env, raiseTo, handler), res)
@@ -496,7 +496,7 @@ fun cfa {config: Config.t} : t =
                          Array_uninit =>
                             let
                                val p = newProxy ()
-                               val pa = alloc (p, Bind.PrimAddr prim, inst)
+                               val pa = alloc (p, Bind.PrimAddr (prim, ty), inst)
                             in
                                AbsValSet.<< (AbsVal.Array pa, res)
                             end
@@ -516,7 +516,7 @@ fun cfa {config: Config.t} : t =
                        | Array_toVector =>
                             let
                                val p = newProxy ()
-                               val pv = alloc (p, Bind.PrimAddr prim, inst)
+                               val pv = alloc (p, Bind.PrimAddr (prim, ty), inst)
                             in
                                AbsValSet.addHandler
                                (arg 0, fn v =>
@@ -541,7 +541,7 @@ fun cfa {config: Config.t} : t =
                        | Ref_ref =>
                             let
                                val p = newProxy ()
-                               val pr = alloc (p, Bind.PrimAddr prim, inst)
+                               val pr = alloc (p, Bind.PrimAddr (prim, ty), inst)
                             in
                                AbsValSet.<= (arg 0, addrInfo pr);
                                AbsValSet.<< (AbsVal.Ref pr, res)
@@ -549,7 +549,7 @@ fun cfa {config: Config.t} : t =
                        | Weak_new =>
                             let
                                val p = newProxy ()
-                               val pw = alloc (p, Bind.PrimAddr prim, inst)
+                               val pw = alloc (p, Bind.PrimAddr (prim, ty), inst)
                             in
                                AbsValSet.<= (arg 0, addrInfo pw);
                                AbsValSet.<< (AbsVal.Weak pw, res)
@@ -569,7 +569,7 @@ fun cfa {config: Config.t} : t =
                        | Vector_vector =>
                             let
                                val p = newProxy ()
-                               val pv = alloc (p, Bind.PrimAddr prim, inst)
+                               val pv = alloc (p, Bind.PrimAddr (prim, ty), inst)
                             in
                                AbsValSet.<< (AbsVal.Vector pv, res)
                             end

@@ -21,13 +21,13 @@ signature ALLOCATOR =
       structure Bind:
          sig
             type addr
-            datatype t = AppArg of (Sxml.Var.t * Sxml.Lambda.t * addr)
-                       | AppFree of (Sxml.Var.t * Sxml.Lambda.t * addr)
-                       | CaseArg of Sxml.Con.t
-                       | ConArg of (Sxml.Con.t * addr)
-                       | HandleArg
+            datatype t = AppArg of Sxml.Var.t * Sxml.Lambda.t * addr
+                       | AppFree of Sxml.Var.t * Sxml.Lambda.t * addr
+                       | CaseArg of Sxml.Con.t * Sxml.Type.t
+                       | ConArg of Sxml.Con.t * addr
+                       | HandleArg of Sxml.Type.t
                        | LetVal of Sxml.PrimExp.t * Sxml.Type.t
-                       | PrimAddr of Sxml.Type.t Sxml.Prim.t
+                       | PrimAddr of Sxml.Type.t Sxml.Prim.t * Sxml.Type.t
          end
       structure SubExp:
          sig

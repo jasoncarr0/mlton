@@ -33,13 +33,13 @@ end
 structure Bind =
 struct
    type addr = (Sxml.Var.t * Sxml.Var.t list)
-   datatype t = AppArg of (Sxml.Var.t * Sxml.Lambda.t * addr)
-              | AppFree of (Sxml.Var.t * Sxml.Lambda.t * addr)
-              | CaseArg of Sxml.Con.t
-              | ConArg of (Sxml.Con.t * addr)
-              | HandleArg
+   datatype t = AppArg of Sxml.Var.t * Sxml.Lambda.t * addr
+              | AppFree of Sxml.Var.t * Sxml.Lambda.t * addr
+              | CaseArg of Sxml.Con.t * Sxml.Type.t
+              | ConArg of Sxml.Con.t * addr
+              | HandleArg of Sxml.Type.t
               | LetVal of Sxml.PrimExp.t * Sxml.Type.t
-              | PrimAddr of Sxml.Type.t Sxml.Prim.t
+              | PrimAddr of Sxml.Type.t Sxml.Prim.t * Sxml.Type.t
 end
 structure SubExp =
 struct
@@ -103,7 +103,7 @@ fun allocator {m, conSetting} =
       fun alloc {var, bind, inst} = case bind of
           Bind.AppArg (call, _, (_, ctxt0)) => (var, extend (ctxt0, call))
         | Bind.AppFree (call, _, (_, ctxt0)) => (var, extend (ctxt0, call))
-        | Bind.CaseArg con => (case conSetting of
+        | Bind.CaseArg (con, _) => (case conSetting of
             Config.ConGlobal => conInfo con
           | Config.Con0CFA => (var, [])
           | Config.ConMCFA => (var, inst))
@@ -121,14 +121,14 @@ fun allocator {m, conSetting} =
            | Sxml.PrimExp.Const _ => typeInfo typ (* always a single proxy *)
            | _ => (var, inst))
         | Bind.PrimAddr _ => (var, []) (* always 0-cfa for refs *)
-        | Bind.HandleArg => (case conSetting of
+        | Bind.HandleArg _ => (case conSetting of
             Config.ConGlobal => typeInfo Sxml.Type.exn
           | Config.Con0CFA => (var, [])
           | Config.ConMCFA => (var, inst))
       fun store {empty: (Sxml.Var.t * Sxml.Var.t list) -> 'a} =
          let
-            val {get = getList: Sxml.Var.t -> (Sxml.Var.t list * 'a) list ref,
-                 destroy = destroy} =
+            val {get=getList: Sxml.Var.t -> (Sxml.Var.t list * 'a) list ref,
+                 destroy} =
                    Property.destGet
                    (Sxml.Var.plist,
                     Property.initFun (fn _ => ref []))

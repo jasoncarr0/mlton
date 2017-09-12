@@ -10,14 +10,14 @@ open S
 
 structure Bind =
 struct
-   type addr = unit
-   datatype t = AppArg of (Sxml.Var.t * Sxml.Lambda.t * addr)
-              | AppFree of (Sxml.Var.t * Sxml.Lambda.t * addr)
-              | CaseArg of Sxml.Con.t
-              | ConArg of (Sxml.Con.t * addr)
-              | HandleArg
+   type addr = Sxml.Type.t
+   datatype t = AppArg of Sxml.Var.t * Sxml.Lambda.t * addr
+              | AppFree of Sxml.Var.t * Sxml.Lambda.t * addr
+              | CaseArg of Sxml.Con.t * Sxml.Type.t
+              | ConArg of Sxml.Con.t * addr
+              | HandleArg of Sxml.Type.t
               | LetVal of Sxml.PrimExp.t * Sxml.Type.t
-              | PrimAddr of Sxml.Type.t Sxml.Prim.t
+              | PrimAddr of Sxml.Type.t Sxml.Prim.t * Sxml.Type.t
 end
 structure SubExp =
 struct
@@ -43,18 +43,26 @@ struct
 end
 structure Addr =
 struct
-   type t = unit
-   fun alloc _ = ()
-   fun equals _ = true
-   fun hash () = 0w1
-   fun layout () = Layout.str "()"
-   fun store {empty: unit -> 'a} =
+   type t = Sxml.Type.t
+   fun alloc {var=_, bind, inst=_} = case bind of
+      Bind.AppArg (_, _, addr) => addr
+    | Bind.AppFree (_, _, addr) => addr
+    | Bind.CaseArg (_, ty) => ty
+    | Bind.ConArg (_, addr) => addr
+    | Bind.HandleArg ty => ty
+    | Bind.LetVal (_, ty) => ty
+    | Bind.PrimAddr (_, ty) => ty
+   val equals = Sxml.Type.equals
+   val hash = Sxml.Type.hash
+   val layout = Sxml.Type.layout
+   fun store {empty: t -> 'a} =
       let
-         val store = ref (empty ())
+         val {get: Sxml.Type.t -> ('a ref), destroy} =
+                Property.destGet
+                (Sxml.Type.plist,
+                 Property.initFun (fn ty => ref (empty ty)))
       in
-         {get = fn () => !store,
-          destroy = fn () => ()
-         }
+         {get= ! o get, destroy=destroy}
       end
 end
 
