@@ -56,6 +56,7 @@ val _ = cfaSet "synkwn(tycfa)"
 structure TyTransform = TyTransform(S)
 structure TyTransformCon = TyTransformCon(S)
 structure UnifTransform = UnifTransform(S)
+structure UnifTransformCon = UnifTransformCon(S)
 val transRef = ref (fn _ => Error.bug "ClosureConvert.trans unset")
 val transString = ref "<trans>"
 val transGet = fn () => !transString
@@ -72,7 +73,8 @@ local
    fun transRdrs () = any (List.map (
       [TyTransform.scan,
        UnifTransform.scan,
-       TyTransformCon.scan],
+       TyTransformCon.scan,
+       UnifTransformCon.scan],
       fn f => f (delay transRdrs)))
 in
    fun transSet s = parseString(set s <$> (transRdrs () <* failing next), s)

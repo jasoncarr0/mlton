@@ -39,6 +39,7 @@ local
    ty-transform.fun
    ty-transform-con.fun
    unif-transform.fun
+   unif-transform-con.fun
 
    closure-convert.sig
    closure-convert.fun
