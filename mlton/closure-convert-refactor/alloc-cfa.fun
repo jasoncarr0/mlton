@@ -31,14 +31,6 @@ type t = {program: Sxml.Program.t} ->
             varUsed: {var: Sxml.Var.t} ->
                bool}
 
-   structure Order =
-   struct
-      structure L = TwoPointLattice (val bottom = "first-order"
-                                     val top = "higher-order")
-      open L
-      (*val isFirstOrder = isBottom*)
-      val makeHigherOrder = makeTop
-   end
 
    structure LambdaFree = LambdaFree(Allocator)
 
@@ -109,48 +101,7 @@ structure AbsValSet = AbstractValueSet
 fun cfa {config: Config.t} : t =
    fn {program: Sxml.Program.t} =>
    let
-      val Sxml.Program.T {datatypes, body, overflow, ...} = program
-
-      val {get = conOrder: Sxml.Con.t -> Order.t,
-           rem = remConOrder} =
-         Property.get
-         (Sxml.Con.plist,
-          Property.initFun (fn _ => Order.new ()))
-      val destroyConOrder = fn () =>
-         Vector.foreach
-         (datatypes, fn {cons, ...} =>
-          Vector.foreach (cons, remConOrder o #con))
-      val {get = tyconOrder: Sxml.Tycon.t -> Order.t,
-           rem = remTyconOrder} =
-         Property.get
-         (Sxml.Tycon.plist,
-          Property.initFun (fn _ => Order.new ()))
-      val destroyTyconOrder = fn () =>
-         Vector.foreach
-         (datatypes, remTyconOrder o #tycon)
-      val {hom = typeOrder: Sxml.Type.t -> Order.t,
-           destroy = destroyTypeOrder} =
-         Sxml.Type.makeMonoHom
-         {con = (fn (_, tycon, vs) =>
-                 let
-                    val res = Order.new ()
-                    val _ =
-                       if Sxml.Tycon.equals (tycon, Sxml.Tycon.arrow)
-                          then Order.makeHigherOrder res
-                       else (Order.<= (tyconOrder tycon, res);
-                             Vector.foreach (vs, fn v => Order.<= (v, res)))
-                 in
-                    res
-                 end)}
-      val _ =
-         Vector.foreach
-         (datatypes, fn {tycon, cons, ...} =>
-          Vector.foreach
-          (cons, fn {con, arg} =>
-           (Option.foreach (arg, fn ty =>
-                            Order.<= (typeOrder ty, conOrder con));
-            Order.<= (conOrder con, tyconOrder tycon))))
-
+      val Sxml.Program.T {datatypes=_, body, overflow, ...} = program
 
       val {descend=descend, newInst=newInst, postBind=postBind,
            alloc=allocTransient, store=store} = allocator config
@@ -697,9 +648,6 @@ fun cfa {config: Config.t} : t =
 
       val destroy = fn () =>
          (destroyCaseInfo ();
-          destroyConOrder ();
-          destroyTyconOrder ();
-          destroyTypeOrder ();
           destroyLambdaFree ();
           destroyLambdaInfo ();
           destroyAddrInfo ();
