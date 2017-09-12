@@ -19,7 +19,6 @@ structure SynKnownCFA = SynKnownCFA(S)
 structure TyCFA = TyCFA(S)
 structure ZeroCFA = ZeroCFA(S)
 structure mCFA = mCFA(S)
-structure AllocHashCFA = AllocCFA(HashAllocator(S))
 structure AllocMCFA = AllocCFA(MAllocator(S))
 structure AllocUniCFA = AllocCFA(UniAllocator(S))
 val cfaRef = ref (fn _ => Error.bug "ClosureConvert.cfa unset")
@@ -38,7 +37,6 @@ local
    fun cfaRdrs () = any (List.map (
       [IntersectCFA.scan,
        SynKnownCFA.scan,
-       AllocHashCFA.scan,
        AllocMCFA.scan,
        AllocUniCFA.scan,
        mCFA.scan,
