@@ -15,7 +15,7 @@ structure Elt =
    struct
       datatype t =
          Bottom
-       | Point of Point.t
+       | Point of Element.t
        | Top
 
       local
@@ -23,62 +23,73 @@ structure Elt =
       in
          val layout =
             fn Bottom => str "Bottom"
-             | Point p => Point.layout p
+             | Point p => Element.layout p
              | Top => str "Top"
       end
    end
 datatype z = datatype Elt.t
 
 datatype t = T of {lessThan: t list ref,
-                   upperBound: Point.t option ref,
-                   value: Elt.t ref}
+                   upperBound: Element.t option ref,
+                   value: Elt.t ref,
+                   handlers: (unit -> unit) list ref}
 
 fun layout (T {value, ...}) = Elt.layout (!value)
 
-fun new () = T {lessThan = ref [],
-                upperBound = ref NONE,
-                value = ref Bottom}
+fun empty () = T {lessThan = ref [],
+                  upperBound = ref NONE,
+                  value = ref Bottom,
+                  handlers = ref []}
 
 val isBottom =
    fn (T {value = ref Bottom, ...}) => true
     | _ => false
-val isPoint =
+val isElement =
    fn (T {value = ref (Point _), ...}) => true
     | _ => false
-val isPointEq = 
-   fn (T {value = ref (Point p), ...}, p') => Point.equals (p, p')
+fun hasElement (T {value, ...}, p) =
+   case !value of
+       Top => true
+     | Point p' => Element.equals (p, p')
+     | Bottom => false
+val isElementEq = 
+   fn (T {value = ref (Point p), ...}, p') => Element.equals (p, p')
     | _ => false
-val getPoint =
+val getElement =
    fn (T {value = ref (Point p), ...}) => SOME p
     | _ => NONE
 val isTop =
    fn (T {value = ref Top, ...}) => true
     | _ => false
 
-fun forceTop (T {upperBound, value, ...}): bool =
+fun forceTop (T {upperBound, value, handlers, ...}): bool =
    if isSome (!upperBound)
       then false
-   else (value := Top; true)
+   else (value := Top; 
+         List.foreach (!handlers, fn h => h ());
+         true)
 
-fun up (T {lessThan, upperBound, value, ...}, e: Elt.t): bool =
+fun up (T {lessThan, upperBound, value, handlers, ...}, e: Elt.t): bool =
    let
       fun continue e = List.forall (!lessThan, fn z => up (z, e))
       fun setTop () =
          not (isSome (!upperBound))
-         andalso (value := Top
-                  ; continue Top)
+         andalso (value := Top;
+                  List.foreach (!handlers, fn h => h ());
+                  continue Top)
    in
       case (!value, e) of
          (_, Bottom) => true
        | (Top, _) => true
        | (_, Top) => setTop ()
        | (Bottom, Point p) =>
-            (value := Point p
-             ; (case !upperBound of
-                   NONE => continue (Point p)
-                 | SOME p' =>
-                      Point.equals (p, p') andalso continue (Point p)))
-       | (Point p, Point p') => Point.equals (p, p') orelse setTop ()
+            (value := Point p;
+             List.foreach (!handlers, fn h => h ());
+             (case !upperBound of
+                 NONE => continue (Point p)
+               | SOME p' =>
+                    Element.equals (p, p') andalso continue (Point p)))
+       | (Point p, Point p') => Element.equals (p, p') orelse setTop ()
    end
 
 val op <= : t * t -> bool =
@@ -93,7 +104,7 @@ val op <= =
 fun lowerBound (e, p): bool = up (e, Point p)
 
 val lowerBound =
-   Trace.trace2 ("FlatLattice.lowerBound", layout, Point.layout, Bool.layout)
+   Trace.trace2 ("FlatLattice.lowerBound", layout, Element.layout, Bool.layout)
    lowerBound
 
 fun upperBound (T {upperBound = r, value, ...}, p): bool =
@@ -101,29 +112,55 @@ fun upperBound (T {upperBound = r, value, ...}, p): bool =
       NONE => (r := SOME p
                ; (case !value of
                      Bottom => true
-                   | Point p' => Point.equals (p, p')
+                   | Point p' => Element.equals (p, p')
                    | Top => false))
-    | SOME p' => Point.equals (p, p')
+    | SOME p' => Element.equals (p, p')
 
 val upperBound =
-   Trace.trace2 ("FlatLattice.upperBound", layout, Point.layout, Bool.layout)
+   Trace.trace2 ("FlatLattice.upperBound", layout, Element.layout, Bool.layout)
    upperBound
 
-fun forcePoint (e, p) =
+fun op << (p, e) = lowerBound (e, p)
+
+fun op <<? (p, e as T {upperBound, value, ...}, cond) = case (!value, !upperBound) of
+    (Top, _) => true
+  | (_, SOME p') => if Element.equals (p, p') orelse not (cond ())
+                then true
+                else lowerBound (e, p)
+  | (Point p', _) => if Element.equals (p, p') andalso not (cond ())
+                then true 
+                else lowerBound (e, p)
+  | _ => if cond () then lowerBound (e, p) else true
+
+fun forceElement (e, p) =
    lowerBound (e, p) andalso upperBound (e, p)
 
-val forcePoint =
-   Trace.trace2 ("FlatLattice.forcePoint", layout, Point.layout, Bool.layout)
-   forcePoint
+val forceElement =
+   Trace.trace2 ("FlatLattice.forceElement", layout, Element.layout, Bool.layout)
+   forceElement
 
-fun point p =
+fun singleton p =
    let
-      val e = new ()
-      val _ = forcePoint (e, p)
+      val e = empty ()
+      val _ = forceElement (e, p)
    in
       e
    end
 
-val point = Trace.trace ("FlatLattice.point", Point.layout, layout) point
+val singleton = Trace.trace ("FlatLattice.point", Element.layout, layout) singleton
+
+fun fromList ps = case List.removeDuplicates (ps, Element.equals) of
+   [] => empty ()
+ | [p] => singleton p
+ | _ => let 
+           val e = empty ()
+           val _ = forceTop e
+        in
+           e
+        end
+
+fun whenChanged (T {handlers, ...}, h) =
+   (List.push (handlers, h);
+    h ())
 
 end

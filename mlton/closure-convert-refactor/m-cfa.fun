@@ -137,7 +137,11 @@ structure AbstractValue =
 structure AbsVal = AbstractValue
 
 structure AbstractValueSet = PowerSetLattice_ListSet(structure Element = AbstractValue)
-structure AbsValSet = AbstractValueSet
+structure AbsValSet = struct
+   open AbstractValueSet
+   val op<= = fn args => ignore (op<= args)
+   val op<< = fn args => ignore (op<< args)
+end
 
 
 fun cfa {config = Config.T {m}: Config.t} : t =

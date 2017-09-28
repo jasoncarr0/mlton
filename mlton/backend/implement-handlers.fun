@@ -33,7 +33,7 @@ structure Function =
          end
    end
 
-structure HandlerLat = FlatLattice (structure Point = Label)
+structure HandlerLat = FlatLattice (structure Element = Label)
 
 structure ExnStack =
    struct
@@ -43,6 +43,10 @@ structure ExnStack =
                datatype t = Local | Slot
 
                val equals: t * t -> bool = op =
+               
+               val hash =
+                  fn Local => 0w0
+                   | Slot => 0w1
 
                val toString =
                   fn Local => "Local"
@@ -50,12 +54,12 @@ structure ExnStack =
 
                val layout = Layout.str o toString
             end
-         structure L = FlatLattice (structure Point = ZPoint)
+         structure L = FlatLattice (structure Element = ZPoint)
       in
          open L
          structure Point = ZPoint
-         val locall = point Point.Local
-         val slot = point Point.Slot
+         val locall = singleton Point.Local
+         val slot = singleton Point.Slot
       end
    end
 
@@ -72,8 +76,8 @@ fun flow (f: Function.t): Function.t =
            rem, ...} =
          Property.get (Label.plist,
                        Property.initFun (fn _ =>
-                                         {global = ExnStack.new (),
-                                          handler = HandlerLat.new ()}))
+                                         {global = ExnStack.empty (),
+                                          handler = HandlerLat.empty ()}))
       val _ =
          Vector.foreach
          (blocks, fn Block.T {label, transfer, ...} =>
@@ -120,7 +124,7 @@ fun flow (f: Function.t): Function.t =
                                       fun doit {global = g'', handler = h''} =
                                          let
                                             val _ = ExnStack.<= (ExnStack.locall, g'')
-                                            val _ = HandlerLat.<= (HandlerLat.point l, h'')
+                                            val _ = HandlerLat.<= (HandlerLat.singleton l, h'')
                                          in
                                             ()
                                          end
@@ -155,15 +159,15 @@ fun flow (f: Function.t): Function.t =
           let
              val {global, handler} = labelInfo label
              fun setExnStackSlot () =
-                if ExnStack.isPointEq (global, ExnStack.Point.Slot)
+                if ExnStack.isElementEq (global, ExnStack.Point.Slot)
                    then Vector.new0 ()
                 else Vector.new1 SetExnStackSlot
              fun setExnStackLocal () =
-                if ExnStack.isPointEq (global, ExnStack.Point.Local)
+                if ExnStack.isElementEq (global, ExnStack.Point.Local)
                    then Vector.new0 ()
                 else Vector.new1 SetExnStackLocal
              fun setHandler (l: Label.t) =
-                if HandlerLat.isPointEq (handler, l)
+                if HandlerLat.isElementEq (handler, l)
                    then Vector.new0 ()
                 else Vector.new1 (SetHandler l)
              val post =

@@ -14,6 +14,7 @@ in
       ../basic/sources.mlb
       ../set/sources.mlb
 
+      element-lattice.sig
       flat-lattice.sig
       flat-lattice.fun
       n-point-lattice.sig
@@ -25,6 +26,7 @@ in
       three-point-lattice.sig
       three-point-lattice.fun
    in
+      signature ELEMENT_LATTICE
       signature FLAT_LATTICE
       signature N_POINT_LATTICE
       signature POWERSET_LATTICE

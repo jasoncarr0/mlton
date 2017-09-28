@@ -8,32 +8,18 @@
 
 signature FLAT_LATTICE_STRUCTS =
    sig
-      structure Point:
-         sig
-            type t
-
-            val equals: t * t -> bool
-            val layout: t -> Layout.t
-         end
+      include ELEMENT_LATTICE_STRUCTS
    end
 
 signature FLAT_LATTICE =
    sig
-      include FLAT_LATTICE_STRUCTS
+      include ELEMENT_LATTICE
 
-      type t
-
-      val <= : t * t -> bool
-      val forcePoint: t * Point.t -> bool
+      val forceElement: t * Element.t -> bool
       val forceTop: t -> bool
-      val getPoint: t -> Point.t option
-      val isBottom: t -> bool
-      val isPoint: t -> bool
-      val isPointEq: t * Point.t -> bool
-      val isTop: t -> bool
-      val layout: t -> Layout.t
-      val lowerBound: t * Point.t -> bool
-      val new: unit -> t
-      val point: Point.t -> t
-      val upperBound: t * Point.t -> bool
+      val getElement: t -> Element.t option
+      val isElement: t -> bool
+      val isElementEq: t * Element.t -> bool
+      val lowerBound: t * Element.t -> bool
+      val upperBound: t * Element.t -> bool
    end

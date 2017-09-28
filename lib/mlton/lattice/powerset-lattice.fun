@@ -19,6 +19,7 @@ structure EltSet :>
       val empty: t
       val foreach: t * (Elt.t -> unit) -> unit
       val fromList: Elt.t list -> t
+      val isEmpty: t -> bool
       val layout: t -> Layout.t
       val singleton: Elt.t -> t
       val toList: t -> Elt.t list
@@ -29,6 +30,7 @@ structure EltSet :>
          List.set {equals = Elt.equals, layout = Elt.layout}
       val foreach = List.foreach
       fun fromList es = List.removeDuplicates (es, Elt.equals)
+      val isEmpty = List.isEmpty
       fun layout es =
          Layout.seq [Layout.str "{",
                      (Layout.fill o Layout.separateRight)
@@ -50,21 +52,37 @@ fun empty () = new EltSet.empty
 fun singleton e = new (EltSet.singleton e)
 fun fromList es = new (EltSet.fromList es)
 
-fun getElements (es as T {elements, ...}) =
+fun getElements (T {elements, ...}) =
    EltSet.toList (!elements)
+fun hasElement (T {elements, ...}, e) =
+   EltSet.contains(!elements, e)
 
 fun addHandler (T {elements, handlers, ...}, h) =
    (List.push (handlers, h);
     EltSet.foreach (!elements, fn e => h e))
 
-fun op<< (e, T {elements, handlers, ...}) =
-   if EltSet.contains (!elements, e)
-      then ()
+fun whenChanged (T {elements, handlers, ...}, h) =
+   (List.push (handlers, fn _ => h ());
+    h ())
+
+
+fun op<<? (e, T {elements, handlers, ...}, cond) =
+   if EltSet.contains (!elements, e) orelse not (cond ())
+      then true
       else (elements := EltSet.add (!elements, e);
-            List.foreach (!handlers, fn h => h e))
+            List.foreach (!handlers, fn h => h e);
+            true)
+fun op<< (e, es) = <<? (e, es, fn () => true)
+
 
 fun op<= (es, es') =
-   addHandler(es, fn e => << (e, es'))
+   (addHandler(es, fn e => ignore (<< (e, es')));
+    true)
+    
+fun isTop _ = false
+fun isBottom (T {elements, ...}) = case EltSet.toList (!elements) of
+    [] => true
+  | _ => false
 
 end
 
@@ -108,32 +126,45 @@ fun empty () = new EltSet.empty
 fun singleton e = new (EltSet.singleton e)
 fun fromList es = new (EltSet.fromList es)
 
-fun getElements (es as T {elements, ...}) =
+fun getElements (T {elements, ...}) =
    EltSet.toList (!elements)
+fun hasElement (T {elements, ...}, e) =
+   EltSet.isEmpty (EltSet.- (EltSet.singleton e, !elements))
 
 fun addHandler (T {elements, handlers, ...}, h) =
    (List.push (handlers, h);
     EltSet.foreach (!elements, fn e => h e))
 
-fun send (T {elements, handlers, coercedTo}, es) =
+fun whenChanged (T {handlers, ...}, h) =
+   (List.push (handlers, fn _ => h ());
+    h ())
+
+fun send (T {elements, handlers, coercedTo}, es, cond) =
    let
       val diff = EltSet.- (es, !elements)
    in
-      if EltSet.isEmpty diff
+      if EltSet.isEmpty diff orelse not (cond ())
          then ()
          else (elements := EltSet.+ (diff, !elements);
-               List.foreach (!coercedTo, fn to => send (to, diff));
+               List.foreach (!coercedTo, fn to => send (to, diff, fn () => true));
                List.foreach (!handlers, fn h =>
                              EltSet.foreach (diff, fn e => h e)))
    end
 
 fun op<= (from as T {elements, coercedTo, ...}, to) =
    if List.exists (!coercedTo, fn es => equals (es, to))
-      then ()
-      else (List.push (coercedTo, to)
-            ; send (to, !elements))
+      then true
+      else (List.push (coercedTo, to); 
+            send (to, !elements, fn () => true);
+            true)
 
-fun op<< (e, es) =
-   send (es, EltSet.singleton e)
+fun op<<? (e, es, cond) =
+   (send (es, EltSet.singleton e, cond);
+    true)
+fun op<< (e, es) = <<? (e, es, fn () => true)
+
+fun isTop _ = false
+fun isBottom (T {elements, ...}) = EltSet.isEmpty (!elements)
+
 
 end

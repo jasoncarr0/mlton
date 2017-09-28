@@ -641,7 +641,7 @@ structure AbstractValue_PowerSetLattice =
          (Proxy.all (), fn p =>
           (display o Layout.seq)
           [Proxy.layout p, Layout.str ": ", ElementSet.layout (proxyValue p)])
-      fun flow {from, to} = ElementSet.<= (from, to)
+      fun flow {from, to} = let val _ = ElementSet.<= (from, to) in () end
       val forBool = ElementSet.fromList [Element.truee, Element.falsee]
       val forUnit = ElementSet.singleton Element.unit
       fun fromConApp ({con, arg}, _) = ElementSet.singleton (Element.ConApp {con = con, arg = arg})

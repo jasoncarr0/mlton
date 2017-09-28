@@ -23,7 +23,7 @@ structure Prim =
           | _ => false
    end
 
-structure FuncLattice = FlatLattice (structure Point = Func)
+structure FuncLattice = FlatLattice (structure Element = Func)
 
 structure GlobalInfo =
   struct
@@ -44,7 +44,7 @@ structure GlobalInfo =
     end
 
     fun new isGlobalRef = T {isGlobalRef = isGlobalRef, 
-                             funcUses = FuncLattice.new ()}
+                             funcUses = FuncLattice.empty ()}
   end
 
 structure Local =
@@ -236,7 +236,7 @@ fun transform (program: Program.t): Program.t =
                    if not isGlobalRef
                       then SOME s
                    else
-                      (case FuncLattice.getPoint funcUses of
+                      (case FuncLattice.getElement funcUses of
                           NONE => SOME s
                         | SOME f =>
                              if funcIsMultiUsed f

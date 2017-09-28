@@ -1177,6 +1177,10 @@ structure Program =
 
                   val equals: t * t -> bool = op =
 
+                  val hash : t -> word =
+                     fn Caller => 0w0
+                      | Me => 0w1
+
                   val toString =
                      fn Caller => "Caller"
                       | Me => "Me"
@@ -1184,14 +1188,14 @@ structure Program =
                   val layout = Layout.str o toString
                end
 
-            structure L = FlatLattice (structure Point = ZPoint)
+            structure L = FlatLattice (structure Element = ZPoint)
             open L
             structure Point = ZPoint
 
-            val me = point Point.Me
+            val me = singleton Point.Me
          end
 
-      structure HandlerLat = FlatLattice (structure Point = Label)
+      structure HandlerLat = FlatLattice (structure Element = Label)
 
       structure HandlerInfo =
          struct
@@ -1203,9 +1207,9 @@ structure Program =
 
             fun new (b: Block.t): t =
                T {block = b,
-                  global = ExnStack.new (),
-                  handler = HandlerLat.new (),
-                  slot = ExnStack.new (),
+                  global = ExnStack.empty (),
+                  handler = HandlerLat.empty (),
+                  slot = ExnStack.empty (),
                   visited = ref false}
 
             fun layout (T {global, handler, slot, ...}) =
@@ -1272,7 +1276,7 @@ structure Program =
                                                       handler = handler,
                                                       slot = global}
                                 | SetHandler l => {global = global,
-                                                   handler = HandlerLat.point l,
+                                                   handler = HandlerLat.singleton l,
                                                    slot = slot}
                                 | _ => {global = global,
                                         handler = handler,
@@ -1318,7 +1322,7 @@ structure Program =
                            val goto = traceGoto goto
                            fun tail name =
                               assert (name,
-                                      ExnStack.forcePoint
+                                      ExnStack.forceElement
                                       (global, ExnStack.Point.Caller))
                            datatype z = datatype Transfer.t
                         in
@@ -1337,17 +1341,17 @@ structure Program =
                                       | NonTail {handler = h, ...} =>
                                            (case h of
                                                Handler.Caller =>
-                                                  ExnStack.forcePoint
+                                                  ExnStack.forceElement
                                                   (global, ExnStack.Point.Caller)
                                              | Handler.Dead => true
                                              | Handler.Handle l =>
                                                   let
                                                      val res =
-                                                        ExnStack.forcePoint
+                                                        ExnStack.forceElement
                                                         (global,
                                                          ExnStack.Point.Me)
                                                         andalso
-                                                        HandlerLat.forcePoint
+                                                        HandlerLat.forceElement
                                                         (handler, l)
                                                      val _ = goto l
                                                   in
@@ -1361,7 +1365,7 @@ structure Program =
                             | Switch s => Switch.foreachLabel (s, goto)
                         end
                   val info as HandlerInfo.T {global, ...} = labelInfo start
-                  val _ = ExnStack.forcePoint (global, ExnStack.Point.Caller)
+                  val _ = ExnStack.forceElement (global, ExnStack.Point.Caller)
                   val _ = visitInfo info
                   val _ =
                      Control.diagnostics
