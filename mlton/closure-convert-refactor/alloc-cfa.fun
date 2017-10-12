@@ -46,6 +46,8 @@ structure AbstractValue =
        | Tuple of (Sxml.Var.t * Addr.t) vector
        | Vector of Addr.t
        | Weak of Addr.t
+       | Word of Sxml.WordX.t
+
 
       fun equals (e, e') =
          case (e, e') of
@@ -67,7 +69,7 @@ structure AbstractValue =
                   Sxml.Var.equals (x1, x2) andalso Addr.equals (a1, a2))
           | (Vector p, Vector p') => Addr.equals (p, p')
           | (Weak p, Weak p') => Addr.equals (p, p')
-          | _ => false
+          | _ => false (* it shouldn't be called on words *)
 
       fun layout (e) =
          let
@@ -90,13 +92,154 @@ structure AbstractValue =
              | Tuple xs => seq [tuple (Vector.toListMap (xs, fn (_, a) => Addr.layout a))]
              | Vector p => seq [str "Vector ", Addr.layout p]
              | Weak p => seq [str "Weak ", Addr.layout p]
+             | Word w => Sxml.WordX.layout w
          end
 
       fun hash _ = 0wx0
    end
 structure AbsVal = AbstractValue
-structure AbstractValueSet = PowerSetLattice_ListSet(structure Element = AbstractValue)
-structure AbsValSet = AbstractValueSet
+structure AbstractValueSet = PowerSetLattice_ListSet (structure Element = AbstractValue)
+structure WordLattice = FlatLattice (structure Element = Sxml.WordX)
+
+structure AbsValSet =
+struct
+   datatype t = PowerSet of AbstractValueSet.t
+              | WordSet of WordLattice.t
+   fun <= (s1, s2) = case (s1, s2) of
+      (PowerSet p1, PowerSet p2) => ignore (AbstractValueSet.<= (p1, p2))
+    | (WordSet l1, WordSet l2) => ignore (WordLattice.<= (l1, l2))
+    | (PowerSet _, WordSet _) => Error.warning "Could not flow abstract values from power set to word set: type error"
+    | (WordSet _, PowerSet _) => Error.warning "Could not flow abstract values from word set to power set: type error"
+   fun <<? (x, s, cond) = case (s, x) of
+       (PowerSet p, _) => ignore (AbstractValueSet.<<? (x, p, cond))
+     | (WordSet lat, AbsVal.Word w) => ignore (WordLattice.<<? (w, lat, cond))
+     | (WordSet _, _) => Error.warning "Could not flow abstract value into word set: type error"
+   fun << (x, s) = op <<? (x, s, fn () => true)
+
+   fun addHandler (s, f) = case s of
+       PowerSet p => AbstractValueSet.addHandler (p, f)
+     | _ => Error.warning "Can't add handler to number lattice"
+
+   val anyWord = let
+      val lat = WordLattice.empty ()
+      val _ = WordLattice.forceTop lat
+   in
+      WordSet lat
+   end
+
+   (* create an empty power set *)
+   fun emptySet () =
+       PowerSet (AbstractValueSet.empty ())
+   fun emptyWord () = WordSet (WordLattice.empty ())
+   fun empty tyopt = case Option.map (tyopt, Sxml.Type.deConOpt) of
+               SOME (SOME (tycon, _)) => if Sxml.Tycon.isWordX tycon
+                  then emptyWord ()
+                  else emptySet ()
+             | _ => emptySet ()
+   val anEmptySet = emptySet ()
+   val anEmptyWord = emptyWord ()
+
+
+   fun singleton x = case x of
+      AbsVal.Word w => WordSet (WordLattice.singleton w)
+    | _ => PowerSet (AbstractValueSet.singleton x)
+   fun fromList l = PowerSet (AbstractValueSet.fromList l)
+
+   val trueCon = AbsVal.ConApp {con=Sxml.Con.truee, arg=NONE}
+   val falseCon = AbsVal.ConApp {con=Sxml.Con.falsee, arg=NONE}
+   val truee = singleton trueCon
+   val falsee = singleton falseCon
+   val unknownBool = fromList [trueCon, falseCon]
+   fun fromBool b = case b of
+      true => truee
+    | false => falsee
+
+   fun whenChanged (s, h) = case s of 
+       WordSet l => WordLattice.whenChanged (l, h)
+     | PowerSet p => AbstractValueSet.whenChanged (p, h)
+
+   (* When the lattice src changes, flow newVal into tgt lazily *)
+   fun flowUpdates (tgt, src, newVal, cond) =
+      whenChanged (src, fn () => op <<? (tgt, newVal, cond))
+   
+   (* Create an abstract value set that is updated when one lattice changes *)
+   fun wlBinUpdating (l1, l2, create: unit -> t, bottom: t, top: t, calc: Sxml.WordX.t * Sxml.WordX.t -> t) =
+      let
+         val res = create ()
+         fun update () =
+            (case (WordLattice.getElement l1, WordLattice.getElement l2) of
+                (SOME w1, SOME w2) =>
+                    op <= (calc (w1, w2), res)
+                | _ => if (WordLattice.isBottom l1 orelse WordLattice.isBottom l2)
+                       then op <= (bottom, res)
+                       else op <= (top, res))
+
+         val _ = WordLattice.whenChanged (l1, fn () => update ())
+         val _ = WordLattice.whenChanged (l2, fn () => update ())
+         val _ = update ()
+      in
+         res
+      end
+
+   (* only handle words for now *)
+   fun eqSet (s1, s2) =
+      case (s1, s2) of
+          (WordSet l1, WordSet l2) =>
+             wlBinUpdating (l1, l2, emptySet, anEmptySet, unknownBool, fromBool o Sxml.WordX.equals)
+        | _ => unknownBool
+
+   fun ltSet (s1, s2, signed) =
+      case (s1, s2) of
+          (WordSet l1, WordSet l2) => 
+            wlBinUpdating (l1, l2, emptySet, anEmptySet, unknownBool, fn (w1, w2) => fromBool (Sxml.WordX.lt (w1, w2, {signed=signed})))
+        | _ => unknownBool
+
+   fun binOp (s1: t, s2: t, f: (Sxml.WordX.t * Sxml.WordX.t -> Sxml.WordX.t)): t =
+      case (s1, s2) of
+          (WordSet l1, WordSet l2) =>
+             wlBinUpdating (l1, l2, emptyWord, anEmptyWord, anyWord, fn (w1, w2) => WordSet (WordLattice.singleton (f (w1, w2))))
+        | _ => unknownBool
+   fun unOp (s: t, f: Sxml.WordX.t -> Sxml.WordX.t): t =
+      case s of
+          WordSet l =>
+             let
+                val res = emptyWord ()
+                fun update () =
+                   (case WordLattice.getElement l of
+                       SOME w => op <= (res, WordSet (WordLattice.singleton (f w)))
+                     | NONE => if WordLattice.isBottom l
+                               then ()
+                               else op <= (res, anyWord))
+                val _ = WordLattice.whenChanged (l, fn () => update ())
+             in
+                res
+             end
+        | _ => anyWord
+   fun add (s1, s2) =
+      binOp (s1, s2, fn (w1, w2) => Sxml.WordX.add (w1, w2))
+   fun mul (s1, s2, signed) =
+      binOp (s1, s2, fn (w1, w2) => Sxml.WordX.mul (w1, w2, {signed=signed}))
+   fun sub (s1, s2) =
+      binOp (s1, s2, fn (w1, w2) => Sxml.WordX.sub (w1, w2))
+   fun neg s = unOp (s, fn w => Sxml.WordX.neg w)
+
+
+   fun layout s = case s of
+       PowerSet p => AbstractValueSet.layout p
+     | WordSet l => WordLattice.layout l
+
+   fun getElements s = case s of
+       PowerSet p => AbstractValueSet.getElements p
+     | WordSet l => if WordLattice.isTop l
+                    then [AbsVal.Base Sxml.Type.word32]
+                    else case WordLattice.getElement l of
+                        SOME p => [AbsVal.Word p]
+                      | NONE => []
+
+end
+
+
+
 
 fun cfa {config: Config.t} : t =
    fn {program: Sxml.Program.t} =>
@@ -105,23 +248,42 @@ fun cfa {config: Config.t} : t =
 
       val {descend=descend, newInst=newInst, postBind=postBind,
            alloc=allocTransient, store=store} = allocator config
+      (* there may be a better way to do this, but this is less error-prone
+       * than trying to manage both stores simultaneously 
+       * We need this due to the polymorphism rules *)
+      val {store=store2, ...} = allocator config
 
-      val {get = addrInfo: Addr.t -> AbsValSet.t, 
-           destroy = destroyAddrInfo} = 
-           store {empty = fn _ => AbsValSet.empty ()}
       val {get = varAddrs: Sxml.Var.t -> Addr.t HashSet.t,
            destroy = destroyVarAddrs} =
          Property.destGet
          (Sxml.Var.plist,
           Property.initFun (fn _ => HashSet.new {hash=Addr.hash}))
-      fun alloc (var, bind, inst) = let
-         val addr = allocTransient {var=var, bind=bind, inst=inst}
-      in
-         HashSet.lookupOrInsert
-         (varAddrs var, Addr.hash addr, 
-          fn addr' => Addr.equals (addr, addr'),
-          fn () => addr)
-      end
+      val {get = addrTypes: Addr.t -> Sxml.Type.t option ref,
+           destroy = destroyAddrTypes} =
+             store {empty = fn _ => ref NONE}
+      val {get = addrInfo: Addr.t -> AbsValSet.t,
+           destroy = destroyAddrInfo} =
+           store2 {empty = fn addr => AbsValSet.empty (!(addrTypes addr))}
+
+      val allocTransient = fn {var, ty, bind, inst} =>
+         let
+            val addr = allocTransient {var=var, bind=bind, inst=inst}
+            val tyref = addrTypes addr
+            val _ = tyref := ty
+         in
+            addr
+         end
+      fun addrType addr: Sxml.Type.t option =
+         !(addrTypes addr)
+      fun alloc (var, ty, bind, inst) =
+         let
+            val addr = allocTransient {var=var, ty=ty, bind=bind, inst=inst}
+         in
+            HashSet.lookupOrInsert
+            (varAddrs var, Addr.hash addr,
+             fn addr' => Addr.equals (addr, addr'),
+             fn () => addr)
+         end
 
       (* used for diagnostic *)
       val {get = caseInfo: Sxml.Var.t -> (Inst.t * Sxml.Con.t) list ref,
@@ -142,7 +304,15 @@ fun cfa {config: Config.t} : t =
            destroy = destroyTypeInfo} =
          Property.destGet
          (Sxml.Type.plist,
-          Property.initFun (AbsValSet.singleton o AbsVal.Base))
+          Property.initFun (fn ty =>
+            let
+               val tyconopt = Sxml.Type.deConOpt ty
+               val isWord = Option.exists (tyconopt, fn (tycon, _) => Sxml.Tycon.isWordX tycon)
+            in
+               if isWord
+                  then AbsValSet.anyWord
+                  else AbsValSet.singleton (AbsVal.Base ty)
+            end))
       val {get = lambdaInfo: Sxml.Lambda.t -> (Addr.t list * (AbsValSet.t * AbsValSet.t)) list ref,
            destroy = destroyLambdaInfo} =
          Property.destGet
@@ -150,7 +320,7 @@ fun cfa {config: Config.t} : t =
           Property.initFun (fn _ => ref []))
       (* We never use postBind with these since there's no handle block we
        * could bind them in, so we won't need to make an address *)
-      val topLevelExn = AbsValSet.empty ()
+      val topLevelExn = AbsValSet.empty NONE
 
       (* gets set once we first see the overflow dec *)
       val overflowVal: AbsValSet.t option ref = ref NONE
@@ -185,7 +355,8 @@ fun cfa {config: Config.t} : t =
             Sxml.Dec.Fun {decs, ...} =>
                let
                   val env = Vector.fold(decs, env, fn ({var, lambda, ty}, env) =>
-                     (var, alloc (var, Bind.LetVal (Sxml.PrimExp.Lambda lambda, ty), inst)) :: env)
+                     (var, alloc (var, SOME ty, 
+                      Bind.LetVal (Sxml.PrimExp.Lambda lambda, ty), inst)) :: env)
                   val ninst = Vector.fold
                   (decs, inst, fn ({var, lambda, ty}, inst) =>
                   let
@@ -204,7 +375,7 @@ fun cfa {config: Config.t} : t =
            | _ => Error.bug "allocCFA.loopDec: strange dec")
       and loopBind (inst, env, raiseTo: AbsValSet.t, bind as {var, exp, ty, ...}): (Inst.t * env) =
          let
-            val addr = alloc (var, Bind.LetVal (exp, ty), inst)
+            val addr = alloc (var, SOME ty, Bind.LetVal (exp, ty), inst)
             val _ = AbsValSet.<= (loopPrimExp (inst, env, raiseTo, bind), addrInfo addr)
             val env' = (var, addr) :: env
          in
@@ -214,7 +385,7 @@ fun cfa {config: Config.t} : t =
          (case exp of
              Sxml.PrimExp.App {func, arg} =>
                 let
-                   val res = AbsValSet.empty ()
+                   val res = AbsValSet.empty (SOME ty)
                    val _ = AbsValSet.addHandler
                            (envExpValue (env, func), fn v =>
                             case v of
@@ -225,19 +396,20 @@ fun cfa {config: Config.t} : t =
                                         then ()
                                   else
                                   let
-                                     val {arg = formArg, body = body', ...} = Sxml.Lambda.dest lambda'
-                                     fun rebind (v, oldAddr) =
+                                     val {arg = formArg, body = body', argType, ...} = Sxml.Lambda.dest lambda'
+                                     fun rebind (binding, oldAddr) =
                                         let
-                                           val newAddr = alloc (v, Bind.AppFree (var, lambda', oldAddr), inst)
+                                           val bindTy = addrType oldAddr
+                                           val newAddr = alloc (binding, bindTy, Bind.AppFree (var, lambda', oldAddr), inst)
                                            val _ = AbsValSet.<= (addrInfo oldAddr,
                                                                  addrInfo newAddr)
                                         in
-                                           (v, newAddr)
+                                           (binding, newAddr)
                                         end
                                      val newFree = Vector.toListMap (frees, rebind)
 
                                      val argAddr = envGet (env, Sxml.VarExp.var arg)
-                                     val formAddr = alloc(formArg, Bind.AppArg (var, lambda', argAddr), inst)
+                                     val formAddr = alloc (formArg, SOME argType, Bind.AppArg (var, lambda', argAddr), inst)
                                      val _ = AbsValSet.<=
                                         (addrInfo argAddr,
                                          addrInfo formAddr)
@@ -269,7 +441,7 @@ fun cfa {config: Config.t} : t =
                                                   * into res will flow into the other lambda
                                                   * and isolation of res ensures these are the
                                                   * only values *)
-                                                 val newRaise = AbsValSet.empty ()
+                                                 val newRaise = AbsValSet.empty NONE
                                                  val _ = List.push (lambdaInfo lambda', (boundAddrs, (newRaise, res)))
                                                  val newVal = loopExp (inst, newEnv, newRaise, body')
                                                  val _ = lambdaInfo lambda' := List.map (!(lambdaInfo lambda'),
@@ -290,7 +462,7 @@ fun cfa {config: Config.t} : t =
                 end
            | Sxml.PrimExp.Case {test, cases, default} =>
                 let
-                   val res = AbsValSet.empty ()
+                   val res = AbsValSet.empty (SOME ty)
                    val _ = addCaseVar (Sxml.VarExp.var test)
                    (* maintain one instance for each time we pass by a case expression
                     * we're not really going to bother with any additional flattening *)
@@ -318,7 +490,7 @@ fun cfa {config: Config.t} : t =
                                                                {var=var, exp=exp, subExp=SubExp.CaseBody (SOME (con', NONE))}))
                                                          | SOME (arg, argTy) =>
                                                              let
-                                                                val addr = alloc (arg, Bind.CaseArg (con', argTy), inst)
+                                                                val addr = alloc (arg, SOME argTy, Bind.CaseArg (con', argTy), inst)
                                                                 val env' = (arg, addr) :: env
                                                                 val inst = postBind (inst, {var=arg, bind=Bind.CaseArg (con', argTy)})
                                                                 val inst = descend (inst,
@@ -400,8 +572,9 @@ fun cfa {config: Config.t} : t =
                       let
                          val arg' = Sxml.VarExp.var arg'
                          val oldAddr = envGet (env, arg')
+                         val oldTy = addrType oldAddr
                          val newAddr = allocTransient (* don't really need to consider this a variable *)
-                            {var=newProxy (), bind=Bind.ConArg (con, oldAddr), inst=inst}
+                            {var=newProxy (), ty=oldTy, bind=Bind.ConArg (con, oldAddr), inst=inst}
                          val _ = AbsValSet.<= (addrInfo oldAddr, addrInfo newAddr)
                       in
                          SOME (arg', newAddr)
@@ -413,12 +586,14 @@ fun cfa {config: Config.t} : t =
                 in
                    res
                 end
-           | Sxml.PrimExp.Const _ =>
-                typeInfo ty
+           | Sxml.PrimExp.Const c =>
+                (case c of
+                    Sxml.Const.Word w => AbsValSet.singleton (AbsVal.Word w)
+                  | _ => typeInfo ty)
            | Sxml.PrimExp.Handle {try, catch = (catchVar, catchTy), handler} =>
                 let
-                   val res = AbsValSet.empty ()
-                   val newRaiseTo = alloc (catchVar, Bind.HandleArg catchTy, inst)
+                   val res = AbsValSet.empty (SOME ty)
+                   val newRaiseTo = alloc (catchVar, SOME catchTy, Bind.HandleArg catchTy, inst)
                    val tryInst = descend (inst,
                      {var=var, exp=exp, subExp = SubExp.HandleTry})
                    val _ = AbsValSet.<= (loopExp (tryInst, env, addrInfo newRaiseTo, try), res)
@@ -437,17 +612,18 @@ fun cfa {config: Config.t} : t =
                 in
                    AbsValSet.singleton (AbsVal.Lambda (freeVars, lambda, ty))
                 end
-           | Sxml.PrimExp.PrimApp {prim, args, ...} =>
+           | Sxml.PrimExp.PrimApp {prim, args, targs, ...} =>
                 let
-                   val res = AbsValSet.empty ()
+                   val res = AbsValSet.empty (SOME ty) 
                    fun arg i = envExpValue (env, Vector.sub (args, i))
                    datatype z = datatype Sxml.Prim.Name.t
                    val _ =
                       case Sxml.Prim.name prim of
                          Array_uninit =>
                             let
+                               val ty = Vector.sub (targs, 0)
                                val p = newProxy ()
-                               val pa = alloc (p, Bind.PrimAddr (prim, ty), inst)
+                               val pa = alloc (p, SOME ty, Bind.PrimAddr (prim, ty), inst)
                             in
                                AbsValSet.<< (AbsVal.Array pa, res)
                             end
@@ -466,8 +642,9 @@ fun cfa {config: Config.t} : t =
                              AbsValSet.<= (typeInfo Sxml.Type.unit, res))
                        | Array_toVector =>
                             let
+                               val ty = Vector.sub (targs, 0)
                                val p = newProxy ()
-                               val pv = alloc (p, Bind.PrimAddr (prim, ty), inst)
+                               val pv = alloc (p, SOME ty, Bind.PrimAddr (prim, ty), inst)
                             in
                                AbsValSet.addHandler
                                (arg 0, fn v =>
@@ -491,16 +668,18 @@ fun cfa {config: Config.t} : t =
                               | _ => ())
                        | Ref_ref =>
                             let
+                               val ty = Vector.sub (targs, 0)
                                val p = newProxy ()
-                               val pr = alloc (p, Bind.PrimAddr (prim, ty), inst)
+                               val pr = alloc (p, SOME ty, Bind.PrimAddr (prim, ty), inst)
                             in
                                AbsValSet.<= (arg 0, addrInfo pr);
                                AbsValSet.<< (AbsVal.Ref pr, res)
                             end
                        | Weak_new =>
                             let
+                               val ty = Vector.sub (targs, 0)
                                val p = newProxy ()
-                               val pw = alloc (p, Bind.PrimAddr (prim, ty), inst)
+                               val pw = alloc (p, SOME ty, Bind.PrimAddr (prim, ty), inst)
                             in
                                AbsValSet.<= (arg 0, addrInfo pw);
                                AbsValSet.<< (AbsVal.Weak pw, res)
@@ -511,6 +690,18 @@ fun cfa {config: Config.t} : t =
                              case v of
                                 AbsVal.Weak pw => AbsValSet.<= (addrInfo pw, res)
                               | _ => ())
+                       | Word_add _ =>
+                            AbsValSet.<= (AbsValSet.add (arg 0, arg 1), res)
+                       | Word_equal _ =>
+                            AbsValSet.<= (AbsValSet.eqSet (arg 0, arg 1), res)
+                       | Word_lt (_, {signed})=>
+                            AbsValSet.<= (AbsValSet.ltSet (arg 0, arg 1, signed), res)
+                       | Word_mul (_, {signed}) =>
+                            AbsValSet.<= (AbsValSet.mul (arg 0, arg 1, signed), res)
+                       | Word_neg _ =>
+                            AbsValSet.<= (AbsValSet.neg (arg 0), res)
+                       | Word_sub _ =>
+                            AbsValSet.<= (AbsValSet.sub (arg 0, arg 1), res)
                        | Vector_sub =>
                             AbsValSet.addHandler
                             (arg 0, fn v =>
@@ -519,16 +710,16 @@ fun cfa {config: Config.t} : t =
                               | _ => ())
                        | Vector_vector =>
                             let
+                               val ty = Vector.sub (targs, 0)
                                val p = newProxy ()
-                               val pv = alloc (p, Bind.PrimAddr (prim, ty), inst)
+                               val pv = alloc (p, SOME ty, Bind.PrimAddr (prim, ty), inst)
                             in
                                AbsValSet.<< (AbsVal.Vector pv, res)
                             end
                        | _ =>
                             let
                                val _ = AbsValSet.<= (if Sxml.Type.equals(ty, Sxml.Type.bool)
-                                  then AbsValSet.fromList [AbsVal.ConApp {con= Sxml.Con.truee, arg= NONE},
-                                                           AbsVal.ConApp {con= Sxml.Con.falsee, arg= NONE}]
+                                  then AbsValSet.unknownBool
                                   else (typeInfo ty), res)
                                val _ = if Sxml.Prim.mayOverflow prim
                                        then (case !overflowVal of
@@ -547,11 +738,11 @@ fun cfa {config: Config.t} : t =
                 let
                    val _ = AbsValSet.<= (envExpValue (env, exn), raiseTo)
                 in
-                   AbsValSet.empty ()
+                   AbsValSet.empty (SOME ty) 
                 end
            | Sxml.PrimExp.Select {tuple, offset} =>
                 let
-                   val res = AbsValSet.empty ()
+                   val res = AbsValSet.empty (SOME ty) 
                    val _ = AbsValSet.addHandler
                           (envExpValue (env, tuple), fn v =>
                            case v of
@@ -651,6 +842,7 @@ fun cfa {config: Config.t} : t =
           destroyLambdaFree ();
           destroyLambdaInfo ();
           destroyAddrInfo ();
+          destroyAddrTypes ();
           destroyVarAddrs ();
           destroyTypeInfo ())
    in
