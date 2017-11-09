@@ -589,6 +589,15 @@ fun cfa {config: Config.t} : t =
            | Sxml.PrimExp.Const c =>
                 (case c of
                     Sxml.Const.Word w => AbsValSet.singleton (AbsVal.Word w)
+                  | Sxml.Const.WordVector v => 
+                       let
+                          val ty = Sxml.Type.word8
+                          val p = newProxy ()
+                          val pv = alloc (p, SOME ty, Bind.PrimAddr (Sxml.Prim.vector, ty), inst)
+                          val _ = AbsValSet.<= (AbsValSet.anyWord, addrInfo pv)
+                       in
+                          AbsValSet.singleton (AbsVal.Vector pv)
+                       end
                   | _ => typeInfo ty)
            | Sxml.PrimExp.Handle {try, catch = (catchVar, catchTy), handler} =>
                 let
