@@ -340,7 +340,7 @@ fun cfa {config: Config.t} : t =
                                                     end)
                                                 val _ = 
                                                    (case (arg', argAddrOpt) of
-                                                       (NONE, NONE) => ()
+                                                       (NONE, NONE) => true
                                                      | (SOME (_, argAddr), SOME newAddr) =>
                                                           AbsValSet.<= (addrInfo argAddr, addrInfo newAddr)
                                                      | _ => Error.bug ("allocCFA.loopPrimExp: Strange case args:" ^
@@ -366,8 +366,9 @@ fun cfa {config: Config.t} : t =
                                                      fn (con, a, v) => if Option.isNone con
                                                         then (con, a, resVal)
                                                      else (con, a, v))
+                                                     val _ = AbsValSet.<= (resVal, res)
                                                   in
-                                                     AbsValSet.<= (resVal, res)
+                                                     ()
                                                   end)
                                           | NONE => ())
                                  (* Non- ConApp *)
@@ -382,9 +383,10 @@ fun cfa {config: Config.t} : t =
                                   {var=var, exp=exp, subExp=SubExp.CaseBody NONE})
                                val _ =
                                   Option.foreach (default, fn (caseExp, _) =>
-                                        AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res))
+                                        ignore (AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res)))
+                               val _ = AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res)
                             in
-                               AbsValSet.<= (loopExp (inst, env, raiseTo, caseExp), res)
+                               ()
                             end)
 
                 in
@@ -449,21 +451,21 @@ fun cfa {config: Config.t} : t =
                                val p = newProxy ()
                                val pa = alloc (p, Bind.PrimAddr (prim, ty), inst)
                             in
-                               AbsValSet.<< (AbsVal.Array pa, res)
+                               ignore (AbsValSet.<< (AbsVal.Array pa, res))
                             end
                        | Array_sub =>
                             AbsValSet.addHandler
                             (arg 0, fn v =>
                              case v of
-                                AbsVal.Array pa => AbsValSet.<= (addrInfo pa, res)
+                                AbsVal.Array pa => ignore (AbsValSet.<= (addrInfo pa, res))
                               | _ => ())
                        | Array_update =>
                             (AbsValSet.addHandler
                              (arg 0, fn v =>
                               case v of
-                                 AbsVal.Array pa => AbsValSet.<= (arg 2, addrInfo pa)
+                                 AbsVal.Array pa => ignore (AbsValSet.<= (arg 2, addrInfo pa))
                                | _ => ());
-                             AbsValSet.<= (typeInfo Sxml.Type.unit, res))
+                             ignore (AbsValSet.<= (typeInfo Sxml.Type.unit, res)))
                        | Array_toVector =>
                             let
                                val p = newProxy ()
@@ -472,57 +474,57 @@ fun cfa {config: Config.t} : t =
                                AbsValSet.addHandler
                                (arg 0, fn v =>
                                 case v of
-                                   AbsVal.Array pa => AbsValSet.<= (addrInfo pa, addrInfo pv)
+                                   AbsVal.Array pa => ignore (AbsValSet.<= (addrInfo pa, addrInfo pv))
                                  | _ => ());
-                               AbsValSet.<< (AbsVal.Vector pv, res)
+                               ignore (AbsValSet.<< (AbsVal.Vector pv, res))
                             end
                        | Ref_assign =>
                             (AbsValSet.addHandler
                              (arg 0, fn v =>
                               case v of
-                                 AbsVal.Ref pr => AbsValSet.<= (arg 1, addrInfo pr)
+                                 AbsVal.Ref pr => ignore (AbsValSet.<= (arg 1, addrInfo pr))
                                | _ => ());
-                             AbsValSet.<= (typeInfo Sxml.Type.unit, res))
+                             ignore (AbsValSet.<= (typeInfo Sxml.Type.unit, res)))
                        | Ref_deref =>
                             AbsValSet.addHandler
                             (arg 0, fn v =>
                              case v of
-                                AbsVal.Ref pr => AbsValSet.<= (addrInfo pr, res)
+                                AbsVal.Ref pr => ignore (AbsValSet.<= (addrInfo pr, res))
                               | _ => ())
                        | Ref_ref =>
                             let
                                val p = newProxy ()
                                val pr = alloc (p, Bind.PrimAddr (prim, ty), inst)
                             in
-                               AbsValSet.<= (arg 0, addrInfo pr);
-                               AbsValSet.<< (AbsVal.Ref pr, res)
+                               ignore (AbsValSet.<= (arg 0, addrInfo pr));
+                               ignore (AbsValSet.<< (AbsVal.Ref pr, res))
                             end
                        | Weak_new =>
                             let
                                val p = newProxy ()
                                val pw = alloc (p, Bind.PrimAddr (prim, ty), inst)
                             in
-                               AbsValSet.<= (arg 0, addrInfo pw);
-                               AbsValSet.<< (AbsVal.Weak pw, res)
+                               ignore (AbsValSet.<= (arg 0, addrInfo pw));
+                               ignore (AbsValSet.<< (AbsVal.Weak pw, res))
                             end
                        | Weak_get =>
                             AbsValSet.addHandler
                             (arg 0, fn v =>
                              case v of
-                                AbsVal.Weak pw => AbsValSet.<= (addrInfo pw, res)
+                                AbsVal.Weak pw => ignore (AbsValSet.<= (addrInfo pw, res))
                               | _ => ())
                        | Vector_sub =>
                             AbsValSet.addHandler
                             (arg 0, fn v =>
                              case v of
-                                AbsVal.Vector pv => AbsValSet.<= (addrInfo pv, res)
+                                AbsVal.Vector pv => ignore (AbsValSet.<= (addrInfo pv, res))
                               | _ => ())
                        | Vector_vector =>
                             let
                                val p = newProxy ()
                                val pv = alloc (p, Bind.PrimAddr (prim, ty), inst)
                             in
-                               AbsValSet.<< (AbsVal.Vector pv, res)
+                               ignore (AbsValSet.<< (AbsVal.Vector pv, res))
                             end
                        | _ =>
                             let
@@ -532,7 +534,7 @@ fun cfa {config: Config.t} : t =
                                   else (typeInfo ty), res)
                                val _ = if Sxml.Prim.mayOverflow prim
                                        then (case !overflowVal of
-                                           SOME v => AbsValSet.<= (v, raiseTo)
+                                           SOME v => ignore (AbsValSet.<= (v, raiseTo))
                                          | NONE => ())
                                        else ()
                             in
@@ -556,7 +558,7 @@ fun cfa {config: Config.t} : t =
                           (envExpValue (env, tuple), fn v =>
                            case v of
                               AbsVal.Tuple xs' =>
-                                 AbsValSet.<= (addrInfo (#2 (Vector.sub (xs', offset))), res)
+                                 ignore (AbsValSet.<= (addrInfo (#2 (Vector.sub (xs', offset))), res))
                             | _ => ())
                 in
                    res
