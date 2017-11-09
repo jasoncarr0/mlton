@@ -14,4 +14,5 @@ signature POWERSET_LATTICE =
 
       val addHandler: t * (Element.t -> unit) -> unit
       val getElements: t -> Element.t list
+      val setTop: t * (Element.t list) -> bool
    end
