@@ -49,6 +49,7 @@ signature ALLOCATOR =
             val equals: t * t -> bool
             val hash: t -> word
             val layout: t -> Layout.t
+            val getType: t -> Sxml.Type.t
          end
       val allocator: Config.t ->
             {newInst: unit -> Inst.t,
@@ -60,8 +61,10 @@ signature ALLOCATOR =
              alloc: {var: Sxml.Var.t,
                      bind: Bind.t,
                      inst: Inst.t} -> Addr.t,
-             store: {empty: Addr.t -> 'a} ->
-                        {get: Addr.t -> 'a,
-                         destroy: unit -> unit}}
+             destroy: unit -> unit
+             }
+      val store: Config.t * (Addr.t -> 'a) ->
+            {get: Addr.t -> 'a,
+             destroy: unit -> unit}
 
 end

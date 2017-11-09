@@ -55,7 +55,7 @@ struct
    val equals = Sxml.Type.equals
    val hash = Sxml.Type.hash
    val layout = Sxml.Type.layout
-   fun store {empty: t -> 'a} =
+   fun store (empty: t -> 'a) =
       let
          val {get: Sxml.Type.t -> ('a ref), destroy} =
                 Property.destGet
@@ -64,10 +64,13 @@ struct
       in
          {get= ! o get, destroy=destroy}
       end
+   fun getType t = t
 end
 
 fun allocator _ =
    {newInst=Inst.new, postBind=Inst.postBind, descend=Inst.descend,
-    alloc=Addr.alloc, store=Addr.store}
+    alloc=Addr.alloc, destroy = fn () => ()}
+
+fun store (_, e) = Addr.store e
 
 end

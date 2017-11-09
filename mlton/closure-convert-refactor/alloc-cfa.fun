@@ -101,14 +101,14 @@ structure AbsValSet = AbstractValueSet
 fun cfa {config: Config.t} : t =
    fn {program: Sxml.Program.t} =>
    let
-      val Sxml.Program.T {datatypes=_, body, overflow, ...} = program
+      val Sxml.Program.T {body, overflow, ...} = program
 
       val {descend=descend, newInst=newInst, postBind=postBind,
-           alloc=allocTransient, store=store} = allocator config
+           alloc=allocTransient, destroy=destroyAllocator} = allocator config
 
       val {get = addrInfo: Addr.t -> AbsValSet.t, 
            destroy = destroyAddrInfo} = 
-           store {empty = fn _ => AbsValSet.empty ()}
+           store (config, fn _ => AbsValSet.empty ())
       val {get = varAddrs: Sxml.Var.t -> Addr.t HashSet.t,
            destroy = destroyVarAddrs} =
          Property.destGet
@@ -654,7 +654,8 @@ fun cfa {config: Config.t} : t =
           destroyLambdaInfo ();
           destroyAddrInfo ();
           destroyVarAddrs ();
-          destroyTypeInfo ())
+          destroyTypeInfo ();
+          destroyAllocator ())
    in
       {canRaise=canRaise, caseUsed=caseUsed, cfa=cfa, destroy=destroy, knownCon=knownCon, varUsed=varUsed}
    end

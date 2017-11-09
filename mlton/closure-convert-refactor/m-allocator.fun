@@ -32,7 +32,7 @@ struct
 end
 structure Bind =
 struct
-   type addr = (Sxml.Var.t * Sxml.Var.t list)
+   type addr = (Sxml.Var.t * Sxml.Type.t * Sxml.Var.t list)
    datatype t = AppArg of Sxml.Var.t * Sxml.Lambda.t * addr
               | AppFree of Sxml.Var.t * Sxml.Lambda.t * addr
               | CaseArg of Sxml.Con.t * Sxml.Type.t
@@ -59,36 +59,37 @@ struct
 end
 structure Addr =
 struct
-   type t = (Sxml.Var.t * Sxml.Var.t list)
-   fun equals ((v1, c1), (v2, c2)) = 
+   type t = (Sxml.Var.t * Sxml.Type.t * Sxml.Var.t list)
+   fun equals ((v1, _, c1), (v2, _, c2)) =
       Sxml.Var.equals (v1, v2) andalso
       List.equals(c1, c2, Sxml.Var.equals)
-   fun hash (v, c) = Sxml.Var.hash v + 0w17 *
+   fun hash (v, _, c) = Sxml.Var.hash v + 0w17 *
       List.fold(c, 0w1, fn (arg, last) =>
          Sxml.Var.hash arg + 0w17 * last)
-   fun layout (v, c) = Layout.seq
+   fun layout (v, _, c) = Layout.seq
       [Sxml.Var.layout v,
        Layout.str ":",
        Layout.list (List.map(c, Sxml.Var.layout))]
 
+   fun getType (_, ty, _) = ty
 end
 
 fun allocator {m, conSetting} =
    let
       (* only used for ConGlobal setting *)
-      val {get = conInfo: Sxml.Con.t -> Addr.t,
+      val {get = conInfo: Sxml.Con.t -> Sxml.Type.t -> Addr.t,
            destroy = destroyConInfo} =
          Property.destGet
          (Sxml.Con.plist,
-          Property.initFun (fn con => (Sxml.Var.newString ("constructor_" ^ (Sxml.Con.toString con)), [])))
+          Property.initFun (fn con => fn ty => (Sxml.Var.newString ("con_" ^ (Sxml.Con.toString con)), ty, [])))
       (* used when we want to collapse type information *)
       val {get = typeInfo: Sxml.Type.t -> Addr.t,
            destroy = destroyTypeInfo} =
          Property.destGet
          (Sxml.Type.plist,
-          Property.initFun (fn typ =>
+          Property.initFun (fn ty =>
             (Sxml.Var.newString ("type_" ^
-            (Sxml.Tycon.toString (Sxml.Type.tycon typ))), [])))
+            (Sxml.Tycon.toString (Sxml.Type.tycon ty))), ty, [])))
       (* used when we want to collapse type information *)
 
 
@@ -101,58 +102,57 @@ fun allocator {m, conSetting} =
           | _ => ctxt
       fun postBind (inst, _) = inst
       fun alloc {var, bind, inst} = case bind of
-          Bind.AppArg (call, _, (_, ctxt0)) => (var, extend (ctxt0, call))
-        | Bind.AppFree (call, _, (_, ctxt0)) => (var, extend (ctxt0, call))
-        | Bind.CaseArg (con, _) => (case conSetting of
-            Config.ConGlobal => conInfo con
-          | Config.Con0CFA => (var, [])
-          | Config.ConMCFA => (var, inst))
-        | Bind.ConArg (con, (var', ctxt)) => (case conSetting of
-            Config.ConGlobal => conInfo con
-          | Config.Con0CFA => (var', []) (* delete argument context *)
-          | Config.ConMCFA => (var', ctxt)) (* keep original address *)
-        | Bind.LetVal (exp, typ) => (case exp of
+          Bind.AppArg (call, _, (_, ty, ctxt0)) => (var, ty, extend (ctxt0, call))
+        | Bind.AppFree (call, _, (_, ty, ctxt0)) => (var, ty, extend (ctxt0, call))
+        | Bind.CaseArg (con, ty) => (case conSetting of
+            Config.ConGlobal => conInfo con ty
+          | Config.Con0CFA => (var, ty, [])
+          | Config.ConMCFA => (var, ty, inst))
+        | Bind.ConArg (con, (var', ty, ctxt)) => (case conSetting of
+            Config.ConGlobal => conInfo con ty
+          | Config.Con0CFA => (var', ty, []) (* delete argument context *)
+          | Config.ConMCFA => (var', ty, ctxt)) (* keep original address *)
+        | Bind.LetVal (exp, ty) => (case exp of
              Sxml.PrimExp.ConApp {arg, ...} =>
                (case (conSetting, arg) of
-                   (Config.ConGlobal, _) => typeInfo typ
-                 | (Config.Con0CFA, _) => (var, [])
-                 | (Config.ConMCFA, SOME _) => (var, inst)
-                 | (Config.ConMCFA, NONE) => (var, inst))
-           | Sxml.PrimExp.Const _ => typeInfo typ (* always a single proxy *)
-           | _ => (var, inst))
-        | Bind.PrimAddr _ => (var, []) (* always 0-cfa for refs *)
-        | Bind.HandleArg _ => (case conSetting of
-            Config.ConGlobal => typeInfo Sxml.Type.exn
-          | Config.Con0CFA => (var, [])
-          | Config.ConMCFA => (var, inst))
-      fun store {empty: (Sxml.Var.t * Sxml.Var.t list) -> 'a} =
-         let
-            val {get=getList: Sxml.Var.t -> (Sxml.Var.t list * 'a) list ref,
-                 destroy} =
-                   Property.destGet
-                   (Sxml.Var.plist,
-                    Property.initFun (fn _ => ref []))
-            fun get (var, ctxt) =
-               let
-                  val ctxts = getList var
-               in
-                  case List.peek (!ctxts,
-                     fn (ctxt', _) => List.equals (ctxt, ctxt', Sxml.Var.equals)) of
-                        SOME (_, v) => v
-                      | NONE => let val v = empty (var, ctxt)
-                           in List.push (ctxts, (ctxt, v)); v
-                        end
-               end
-         in
-            {get=get, destroy=destroy}
-         end
+                   (Config.ConGlobal, _) => typeInfo ty
+                 | (Config.Con0CFA, _) => (var, ty, [])
+                 | (Config.ConMCFA, SOME _) => (var, ty, inst)
+                 | (Config.ConMCFA, NONE) => (var, ty, inst))
+           | Sxml.PrimExp.Const _ => typeInfo ty (* always a single proxy *)
+           | _ => (var, ty, inst))
+        | Bind.PrimAddr (_, ty) => (var, ty, []) (* always 0-cfa for refs *)
+        | Bind.HandleArg ty => (case conSetting of
+            Config.ConGlobal => typeInfo ty
+          | Config.Con0CFA => (var, ty, [])
+          | Config.ConMCFA => (var, ty, inst))
 
-      val _ = destroyConInfo
-      val _ = destroyTypeInfo
+      fun destroy () = (destroyConInfo (); destroyTypeInfo ())
    in
-      {descend=descend, newInst=newInst, postBind=postBind,
-       alloc=alloc, store=store}
+      {descend=descend, newInst=newInst, postBind=postBind, alloc=alloc, destroy=destroy}
    end
+
+   fun store (_, empty: (Sxml.Var.t * Sxml.Type.t * Sxml.Var.t list) -> 'a) =
+      let
+         val {get=getList: Sxml.Var.t -> (Sxml.Var.t list * 'a) list ref,
+              destroy} =
+                Property.destGet
+                (Sxml.Var.plist,
+                 Property.initFun (fn _ => ref []))
+         fun get (var, ty, ctxt) =
+            let
+               val ctxts = getList var
+            in
+               case List.peek (!ctxts,
+                  fn (ctxt', _) => List.equals (ctxt, ctxt', Sxml.Var.equals)) of
+                     SOME (_, v) => v
+                   | NONE => let val v = empty (var, ty, ctxt)
+                        in List.push (ctxts, (ctxt, v)); v
+                     end
+            end
+      in
+         {get=get, destroy=destroy}
+      end
 
 
 end
