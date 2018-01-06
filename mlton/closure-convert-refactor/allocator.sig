@@ -61,8 +61,7 @@ signature ALLOCATOR =
              alloc: {var: Sxml.Var.t,
                      bind: Bind.t,
                      inst: Inst.t} -> Addr.t,
-             destroy: unit -> unit
-             }
+             destroy: unit -> unit}
       val store: Config.t * (Addr.t -> 'a) ->
             {get: Addr.t -> 'a,
              destroy: unit -> unit}

@@ -13,6 +13,13 @@ struct
 open Allocator
 structure Allocator = Allocator
 
+structure OldConf = Config
+structure Config =
+struct
+   type t = (bool * OldConf.t)
+   val scan = OldConf.scan
+end
+
 type t = {program: Sxml.Program.t} ->
            {canRaise: Sxml.Lambda.t -> bool,
             caseUsed: {res: Sxml.Var.t,
@@ -40,7 +47,7 @@ structure AbstractValue =
       datatype t =
          Array of Addr.t
        | Base of Sxml.Type.t
-       | ConApp of {con: Sxml.Con.t, arg: (Sxml.Var.t * Addr.t) option}
+       | Con of {con: Sxml.Con.t}
        | Lambda of (Sxml.Var.t * Addr.t) vector * Sxml.Lambda.t * Sxml.Type.t
        | Ref of Addr.t
        | Tuple of (Sxml.Var.t * Addr.t) vector
@@ -51,11 +58,8 @@ structure AbstractValue =
          case (e, e') of
             (Array p, Array p') => Addr.equals (p, p')
           | (Base ty, Base ty') => Sxml.Type.equals (ty, ty')
-          | (ConApp {con = con, arg = arg}, ConApp {con = con', arg = arg'}) =>
-               Sxml.Con.equals (con, con') andalso
-               Option.equals (arg, arg', fn ((var, addr), (var', addr')) =>
-               Sxml.Var.equals (var, var') andalso
-               Addr.equals (addr, addr'))
+          | (Con {con = con}, Con {con = con'}) =>
+               Sxml.Con.equals (con, con')
           | (Lambda (env, lam, _), Lambda (env', lam', _)) =>
                Vector.equals (env, env', fn ((var, addr), (var', addr')) =>
                   Sxml.Var.equals (var, var') andalso
@@ -63,7 +67,7 @@ structure AbstractValue =
                Sxml.Lambda.equals (lam, lam')
           | (Ref p, Ref p') => Addr.equals (p, p')
           | (Tuple xs, Tuple xs') =>
-               Vector.equals (xs, xs', fn ((x1, a1), (x2, a2)) => 
+               Vector.equals (xs, xs', fn ((x1, a1), (x2, a2)) =>
                   Sxml.Var.equals (x1, x2) andalso Addr.equals (a1, a2))
           | (Vector p, Vector p') => Addr.equals (p, p')
           | (Weak p, Weak p') => Addr.equals (p, p')
@@ -76,15 +80,7 @@ structure AbstractValue =
             case e of
                Array p => seq [str "Array ", Addr.layout p]
              | Base ty => seq [str "Base ", Sxml.Type.layout ty]
-             | ConApp {con, arg} => seq [Sxml.Con.layout con,
-                                                 case arg of
-                                                    NONE => empty
-                                                  | SOME (arg, addr) => seq
-                                                      [str " ",
-                                                       Sxml.Var.layout arg,
-                                                       str " [",
-                                                       Addr.layout addr,
-                                                       str "]"]]
+             | Con {con} => Sxml.Con.layout con
              | Lambda (_, lam, _) => seq [str "fn ", Sxml.Var.layout (Sxml.Lambda.arg lam)]
              | Ref p => seq [str "Ref ", Addr.layout p]
              | Tuple xs => seq [tuple (Vector.toListMap (xs, fn (_, a) => Addr.layout a))]
@@ -96,19 +92,105 @@ structure AbstractValue =
    end
 structure AbsVal = AbstractValue
 structure AbstractValueSet = PowerSetLattice_ListSet(structure Element = AbstractValue)
-structure AbsValSet = AbstractValueSet
+(*structure AbsValSet = AbstractValueSet*)
+structure AbsValSet = struct
+   (* recursive *)
+   datatype t = Set of (AbstractValueSet.t * (Sxml.Con.t * t) HashSet.t option ref)
 
-fun cfa {config: Config.t} : t =
+   fun getSet setOptRef = case (!setOptRef) of
+       SOME s => s
+     | NONE =>
+          let
+             val newSet = HashSet.new {hash = fn (c, _) => Sxml.Con.hash c}
+             val _ = setOptRef := SOME newSet
+          in
+             newSet
+          end
+   fun empty () = Set (AbstractValueSet.empty (), ref NONE)
+   fun getConArgs (Set (_, h), c) = #2 (HashSet.lookupOrInsert (getSet h,
+      Sxml.Con.hash c, fn (c', _) => Sxml.Con.equals (c, c'), fn () => (c, empty ())))
+   fun <= (Set (s1, args1), Set (s2, args2)): bool =
+      (args1 = args2) orelse
+      let
+         val res = AbstractValueSet.<= (s1, s2)
+         fun flowCon con = (getConArgs (Set (s1, args1), con)) <= (getConArgs (Set (s1, args1), con))
+         (*val _ = Option.foreach (!args1, fn s =>
+            HashSet.foreach(s, fn (c, oldSet) =>
+               ignore (HashSet.insertIfNew (getSet args2,
+                  Sxml.Con.hash c, fn (c', _) => Sxml.Con.equals (c, c'),
+                  fn () => (c, oldSet), fn (_, newSet) =>
+                     ignore (oldSet <= newSet)))))*)
+         val _ = AbstractValueSet.addHandler(s1, fn v =>
+            case v of AbstractValue.Con {con} => ignore (flowCon con)
+                    | _ => ())
+      in
+         res
+      end
+   fun << (v, Set (s, _)) = AbstractValueSet.<< (v, s)
+   fun singleton v = Set (AbstractValueSet.singleton v, ref NONE)
+   fun fromList els = Set (AbstractValueSet.fromList els, ref NONE)
+   fun addHandler (Set (s, _), f) = AbstractValueSet.addHandler (s, f)
+   (* produces a new AbsValSet.t from the arguments of this one and a fixed constructor *)
+   fun isBottom (Set (s, _)) = AbstractValueSet.isBottom s
+   fun getElements (Set (s, _)) = AbstractValueSet.getElements s
+   fun layout (Set (s, h)) =
+      Layout.seq (AbstractValueSet.layout s ::
+                 (case !h of
+                      NONE => []
+                    | SOME set =>
+                        [Layout.str ":",
+                         HashSet.layout
+                           (fn (c, a) =>
+                              Layout.seq [Sxml.Con.layout c,
+                                          Layout.str " -> ",
+                                          layout a])
+                           set]
+                        ))
+end
+
+fun cfa {config=(useTops, config'): Config.t} : t =
    fn {program: Sxml.Program.t} =>
    let
-      val Sxml.Program.T {body, overflow, ...} = program
+      val Sxml.Program.T {datatypes, body, overflow, ...} = program
 
       val {descend=descend, newInst=newInst, postBind=postBind,
-           alloc=allocTransient, destroy=destroyAllocator} = allocator config
+           alloc=allocTransient, destroy=destroyAllocator} = allocator config'
 
-      val {get = addrInfo: Addr.t -> AbsValSet.t, 
-           destroy = destroyAddrInfo} = 
-           store (config, fn _ => AbsValSet.empty ())
+      (*val datatypeCons = if useTops
+         then HashSet.fromList
+            (Vector.toList datatypes,
+             {hash = fn {tycon, ...} => Sxml.Tycon.hash tycon,
+              equals = fn ({tycon, ...}, {tycon=tycon2, ...}) => Sxml.Tycon.equals (tycon, tycon2)})
+         else HashSet.new {hash = fn _ => 0wx0}
+       *)
+
+         (*
+      val {get = addrInfo: Addr.t -> AbsValSet.t,
+           destroy = destroyAddrInfo} =
+           store (config, fn a =>
+              let
+                 val ty = Addr.getType a
+                 val tyconOpt = Sxml.Type.deConOpt ty
+                 val bound = Option.map
+                    (tyconOpt,
+                     fn (t, _) -> HashSet.get (datatypeCons,
+
+              in
+                 AbsValSet.empty ()
+              end)
+          *)
+      val {get = addrInfo: Addr.t -> AbsValSet.t,
+           destroy = destroyAddrInfo} =
+           store (config', fn _ => AbsValSet.empty ())
+
+      (* associate each constructor for each address with a set of possible arguments *)
+      (*val {get = addrArgs: Addr.t -> (Sxml.Con.t * AbsValSet.t) HashSet.t,
+           destroy = destroyAddrArgs} =
+           store (config', fn _ => HashSet.new {hash = Sxml.Con.hash o #1})
+       *)
+     
+
+
       val {get = varAddrs: Sxml.Var.t -> Addr.t HashSet.t,
            destroy = destroyVarAddrs} =
          Property.destGet
@@ -118,7 +200,7 @@ fun cfa {config: Config.t} : t =
          val addr = allocTransient {var=var, bind=bind, inst=inst}
       in
          HashSet.lookupOrInsert
-         (varAddrs var, Addr.hash addr, 
+         (varAddrs var, Addr.hash addr,
           fn addr' => Addr.equals (addr, addr'),
           fn () => addr)
       end
@@ -220,7 +302,7 @@ fun cfa {config: Config.t} : t =
                             case v of
                                AbsVal.Lambda (frees, lambda', lamty) =>
                                   if not (
-                                    (case Sxml.Type.deArrow lamty of 
+                                    (case Sxml.Type.deArrow lamty of
                                         (_, res) => Sxml.Type.equals (res, ty) ))
                                         then ()
                                   else
@@ -264,7 +346,7 @@ fun cfa {config: Config.t} : t =
                                         of
                                            SOME (_, vals) => vals
                                          | NONE =>
-                                              let 
+                                              let
                                                  (* determinism ensures that all values that flow
                                                   * into res will flow into the other lambda
                                                   * and isolation of res ensures these are the
@@ -297,12 +379,12 @@ fun cfa {config: Config.t} : t =
                    val info : (Sxml.Con.t option * Addr.t option * AbsValSet.t) list ref = ref []
                    val _ =
                       case cases of
-                         Sxml.Cases.Con cases => 
+                         Sxml.Cases.Con cases =>
                          let
                             val _ = AbsValSet.addHandler
                                (envExpValue (env, test), fn v =>
                                 case v of
-                                   AbsVal.ConApp {con = con', arg = arg'} =>
+                                   AbsVal.Con {con = con'} =>
                                       (case Vector.peek (cases, fn (Sxml.Pat.T {con, ...}, _) =>
                                           Sxml.Con.equals (con, con')) of
                                           SOME (Sxml.Pat.T {arg, ...}, caseExp) =>
@@ -312,7 +394,7 @@ fun cfa {config: Config.t} : t =
                                                    SOME (SOME _, argAddrOpt, _) => argAddrOpt
                                                  | _ =>
                                                     let
-                                                       val (newAddr, env, inst) = case arg of 
+                                                       val (newAddr, env, inst) = case arg of
                                                            NONE => (NONE, env,
                                                             descend (inst,
                                                                {var=var, exp=exp, subExp=SubExp.CaseBody (SOME (con', NONE))}))
@@ -330,7 +412,7 @@ fun cfa {config: Config.t} : t =
                                                        val resVal = loopExp (inst, env, raiseTo, caseExp)
                                                        val _ = AbsValSet.<= (resVal, res)
                                                        val _ = info := List.map (!info,
-                                                          fn (con, a, v) => 
+                                                          fn (con, a, v) =>
                                                              if Option.exists (con, fn con => Sxml.Con.equals (con', con))
                                                                 then (con, a, resVal)
                                                              else (con, a, v))
@@ -338,22 +420,16 @@ fun cfa {config: Config.t} : t =
                                                     in
                                                        newAddr
                                                     end)
-                                                val _ = 
-                                                   (case (arg', argAddrOpt) of
-                                                       (NONE, NONE) => true
-                                                     | (SOME (_, argAddr), SOME newAddr) =>
-                                                          AbsValSet.<= (addrInfo argAddr, addrInfo newAddr)
-                                                     | _ => Error.bug ("allocCFA.loopPrimExp: Strange case args:" ^
-                                                            Layout.toString (Layout.seq
-                                                           [Option.layout (Addr.layout o #2) arg',
-                                                            Layout.str " vs ",
-                                                            Option.layout Addr.layout argAddrOpt,
-                                                            Layout.str " on ",
-                                                            Sxml.Con.layout con'])))
+                                                val _ =
+                                                   (case argAddrOpt of
+                                                       NONE => true
+                                                     | SOME newAddr => AbsValSet.<= (
+                                                         AbsValSet.getConArgs (envExpValue (env, test), con'),
+                                                         addrInfo newAddr))
                                              in
                                                 ()
                                              end
-                                        | NONE => case default of 
+                                        | NONE => case default of
                                             SOME (defExp, _) =>
                                                (case List.peek (!info, fn (con, _, _) => Option.isNone con) of
                                                  SOME _ =>
@@ -371,7 +447,7 @@ fun cfa {config: Config.t} : t =
                                                      ()
                                                   end)
                                           | NONE => ())
-                                 (* Non- ConApp *)
+                                 (* Non- Con *)
                                  | _ => ())
                          in
                             ()
@@ -395,9 +471,9 @@ fun cfa {config: Config.t} : t =
            | Sxml.PrimExp.ConApp {con, arg, ...} =>
                 let
                    val res =
-                   AbsValSet.singleton (AbsVal.ConApp {con=con,
-                   arg=(case arg of
-                       NONE => NONE
+                     AbsValSet.singleton (AbsVal.Con {con=con})
+                   val _ = case arg of
+                       NONE => ()
                      | SOME arg' =>
                       let
                          val arg' = Sxml.VarExp.var arg'
@@ -405,9 +481,11 @@ fun cfa {config: Config.t} : t =
                          val newAddr = allocTransient (* don't really need to consider this a variable *)
                             {var=newProxy (), bind=Bind.ConArg (con, oldAddr), inst=inst}
                          val _ = AbsValSet.<= (addrInfo oldAddr, addrInfo newAddr)
+                         val _ = AbsValSet.<= (addrInfo newAddr, AbsValSet.getConArgs
+                           (addrInfo (alloc (var, Bind.LetVal (exp, ty), inst)), con))
                       in
-                         SOME (arg', newAddr)
-                      end)})
+                         ()
+                      end
                    (* this will be happen exactly once in any sml program *)
                    val _ = if Option.exists (overflow, fn v => Sxml.Var.equals (v, var))
                            then overflowVal := (SOME res)
@@ -529,8 +607,8 @@ fun cfa {config: Config.t} : t =
                        | _ =>
                             let
                                val _ = AbsValSet.<= (if Sxml.Type.equals(ty, Sxml.Type.bool)
-                                  then AbsValSet.fromList [AbsVal.ConApp {con= Sxml.Con.truee, arg= NONE},
-                                                           AbsVal.ConApp {con= Sxml.Con.falsee, arg= NONE}]
+                                  then AbsValSet.fromList [AbsVal.Con {con= Sxml.Con.truee},
+                                                           AbsVal.Con {con= Sxml.Con.falsee}]
                                   else (typeInfo ty), res)
                                val _ = if Sxml.Prim.mayOverflow prim
                                        then (case !overflowVal of
@@ -593,19 +671,19 @@ fun cfa {config: Config.t} : t =
             List.foreach (HashSet.toList (varAddrs x), fn addr =>
             (display o Layout.seq)
             [Sxml.Var.layout x, Layout.str " @ ",
-             Addr.layout addr, Layout.str " : ", 
+             Addr.layout addr, Layout.str " : ",
              AbsValSet.layout (addrInfo addr)])))))
 
       fun allValues var = List.removeDuplicates
          (List.concatMap (HashSet.toList (varAddrs var),
             fn s => AbsValSet.getElements (addrInfo s)),
           AbsVal.equals)
-      fun canRaise lam = List.exists 
+      fun canRaise lam = List.exists
          (!(lambdaInfo lam),
           fn (_, (raiseVal, _)) => List.exists
              (AbsValSet.getElements raiseVal,
               fn v => case v of
-                  AbsVal.ConApp _ => true
+                  AbsVal.Con _ => true
                 | _ => false))
 
 
@@ -632,14 +710,16 @@ fun cfa {config: Config.t} : t =
               con: Sxml.Con.t} option =
          fn {res} =>
             let
+               val addrs = HashSet.toList (varAddrs res)
                val absVals = List.keepAllMap(allValues res, fn absVal =>
                   case absVal of
-                     AbsVal.ConApp {con, arg} => SOME {con=con,
-                        arg=Option.map(arg, Sxml.VarExp.mono o #1)}
+                     AbsVal.Con {con} => SOME con
                    | _ => NONE)
             in
                case absVals of
-                   [{con, arg=NONE}] => SOME {con=con, arg=NONE}
+                   [con] => (if List.forall (addrs, fn a => AbsValSet.isBottom (AbsValSet.getConArgs (addrInfo a, con)))
+                     then SOME {con=con, arg=NONE}
+                     else NONE)
                  | _ => NONE
             end
 
@@ -670,9 +750,10 @@ local
    infix 2 <&>
    infix  3 <*> <* *>
    infixr 4 <$> <$$> <$$$> <$
-   fun mkCfg c = {config=c}
+   fun mkCfg (a, c) = {config=(a, c)}
 in
-fun scan _ = cfa <$> mkCfg <$> (str "alloc(" *> Config.scan <* char #")")
+fun scan _ = cfa <$> mkCfg <$$> (str "alloc(" *> ((true <$ str "true") <|> (false <$ str "false")),
+                                 str ", " *> Config.scan <* char #")")
 end
 
 
