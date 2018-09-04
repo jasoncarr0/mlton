@@ -2,7 +2,7 @@
  * Copyright (C) 1999-2006 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -119,6 +119,8 @@ signature VECTOR =
       val tabulator: int * (('a -> unit) -> unit) -> 'a t
       val toArray: 'a t -> 'a array
       val toList: 'a t -> 'a list
+      val toListKeepAllMap: 'a t * ('a -> 'b option) -> 'b list
+      val toListKeepAllMapi: 'a t * (int * 'a -> 'b option) -> 'b list
       val toListMap: 'a t * ('a -> 'b) -> 'b list
       val toListRev: 'a t -> 'a list
       val toString: ('a -> string) -> 'a t -> string

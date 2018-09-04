@@ -3,7 +3,7 @@
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -102,7 +102,8 @@ signature CONTROL_FLAGS =
             val allowFFI: (bool,bool) t
             val allowOverload: (bool,bool) t
             val allowPrim: (bool,bool) t
-            val allowRebindEquals: (bool,bool) t
+            val allowRedefineSpecialIds: (bool,bool) t
+            val allowSpecifySpecialIds: (bool,bool) t
             val deadCode: (bool,bool) t
             val forceUsed: (unit,bool) t
             val ffiStr: (string,string option) t
@@ -251,7 +252,8 @@ signature CONTROL_FLAGS =
       val libname : string ref
 
       (* Number of times to loop through optimization passes. *)
-      val loopPasses: int ref
+      val loopSsaPasses: int ref
+      val loopSsa2Passes: int ref
 
       (* Limit the code growth loop unrolling/unswitching will allow. *)
       val loopUnrollLimit: int ref
@@ -303,6 +305,13 @@ signature CONTROL_FLAGS =
             val split: int option ref
          end
 
+      val optFuel: int option ref
+
+      val optFuelAvailAndUse: unit -> bool
+
+      val optimizationPasses:
+         {il: string, set: string -> unit Result.t, get: unit -> string} list ref
+
       val positionIndependent : bool ref
 
       (* Only duplicate big functions when
@@ -351,6 +360,10 @@ signature CONTROL_FLAGS =
       (* Show the basis library. *)
       val showBasis: File.t option ref
 
+      val showBasisCompact: bool ref
+      val showBasisDef: bool ref
+      val showBasisFlat: bool ref
+
       (* Show def-use information. *)
       val showDefUse: File.t option ref
 
@@ -384,8 +397,10 @@ signature CONTROL_FLAGS =
                   val csize: unit -> Bits.t
                   val header: unit -> Bits.t
                   val mplimb: unit -> Bits.t
+                  val normalMetaData: unit -> Bits.t
                   val objptr: unit -> Bits.t
                   val seqIndex: unit -> Bits.t
+                  val sequenceMetaData: unit -> Bits.t
                end
             val setSizes: {cint: Bits.t,
                            cpointer: Bits.t,
@@ -393,8 +408,10 @@ signature CONTROL_FLAGS =
                            csize: Bits.t,
                            header: Bits.t,
                            mplimb: Bits.t,
+                           normalMetaData: Bits.t,
                            objptr: Bits.t,
-                           seqIndex: Bits.t} -> unit
+                           seqIndex: Bits.t,
+                           sequenceMetaData: Bits.t} -> unit
          end
 
       (* Type check ILs. *)

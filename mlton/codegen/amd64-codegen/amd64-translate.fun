@@ -3,7 +3,7 @@
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -76,7 +76,7 @@ struct
          get #1 0 v
 
       val rec toAMD64Operand : t -> (amd64.Operand.t * amd64.Size.t) vector =
-         fn ArrayOffset {base, index, offset, scale, ty}
+         fn SequenceOffset {base, index, offset, scale, ty}
             => let
                   val base = toAMD64Operand base
                   val _ = Assert.assert("amd64Translate.Operand.toAMD64Operand: Array/base",

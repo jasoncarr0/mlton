@@ -1,9 +1,9 @@
-(* Copyright (C) 2009 Matthew Fluet.
+(* Copyright (C) 2009,2016-2017 Matthew Fluet.
  * Copyright (C) 1999-2007 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -66,25 +66,27 @@ signature RUNTIME =
       structure RObjectType:
          sig
             datatype t =
-               Array of {hasIdentity: bool,
-                         bytesNonObjptrs: Bytes.t,
-                         numObjptrs: int}
-             | Normal of {hasIdentity: bool,
+               Normal of {hasIdentity: bool,
                           bytesNonObjptrs: Bytes.t,
                           numObjptrs: int}
+             | Sequence of {hasIdentity: bool,
+                            bytesNonObjptrs: Bytes.t,
+                            numObjptrs: int}
              | Stack
              | Weak of {gone: bool}
          end
 
-      val arrayLengthOffset: unit -> Bytes.t
-      val arrayLengthSize: unit -> Bytes.t
+      val cpointerSize: unit -> Bytes.t
       val headerOffset: unit -> Bytes.t
       val headerSize: unit -> Bytes.t
       val headerToTypeIndex: word -> int
       val labelSize: unit -> Bytes.t
       val limitSlop: Bytes.t
       val maxFrameSize: Bytes.t
-      val cpointerSize: unit -> Bytes.t
+      val normalMetaDataSize: unit -> Bytes.t
       val objptrSize: unit -> Bytes.t
+      val sequenceLengthOffset: unit -> Bytes.t
+      val sequenceLengthSize: unit -> Bytes.t
+      val sequenceMetaDataSize: unit -> Bytes.t
       val typeIndexToHeader: int -> word
    end

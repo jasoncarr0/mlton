@@ -1,6 +1,6 @@
 (* Copyright (C) 2017 Jason Carr.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -11,7 +11,6 @@ struct
    structure P = Parse
    open P.Ops
    infix 1 <|> >>=
-   infix 2 <&>
    infix  3 <*> <* *>
    infixr 4 <$> <$$> <$$$> <$ <$?> 
 
@@ -141,7 +140,7 @@ struct
          else P.fail "Invalid word"
    val parseWord8Vector = WordXVector.fromVector <$$>
         (P.pure {elementSize=WordSize.word8},
-         P.char #"#" *> P.vector (P.uintInf >>= makeWord (Tycon.word WordSize.word8)))
+         P.char #"#" *> P.vector (parseHex >>= makeWord (Tycon.word WordSize.word8)))
 
    fun exp resolveCon resolveTycon resolveVar =
       let

@@ -2,7 +2,7 @@
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -13,6 +13,8 @@ signature RETURN
 signature SSA
 signature SSA2
 
+functor ParseSsa
+functor ParseSsa2
 functor Ssa
 functor Ssa2
 functor SsaToSsa2
@@ -39,6 +41,10 @@ type-check.sig
 type-check2.sig
 type-check.fun
 type-check2.fun
+parse-ssa.sig
+parse-ssa.fun
+parse-ssa2.sig
+parse-ssa2.fun
 prepasses.sig
 prepasses2.sig
 prepasses.fun
@@ -84,6 +90,7 @@ redundant.fun
 ref-flatten.fun
 remove-unused.fun
 remove-unused2.fun
+share-zero-vec.fun
 simplify-types.fun
 useless.fun
 zone.fun

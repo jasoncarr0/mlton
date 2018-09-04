@@ -1,8 +1,8 @@
-(* Copyright (C) 2009 Matthew Fluet.
+(* Copyright (C) 2009,2017 Matthew Fluet.
  * Copyright (C) 2004-2008 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -380,7 +380,7 @@ structure Value =
                     let
                        val {args = a, con, ...} = Equatable.value e
                     in
-                       if Prod.isMutable a orelse ObjectCon.isVector con
+                       if Prod.someIsMutable a orelse ObjectCon.isSequence con
                           then unify (from, to)
                        else
                           case !f' of
@@ -399,17 +399,17 @@ structure Value =
       fun mayFlatten {args, con}: bool =
          (* Don't flatten constructors, since they are part of a sum type.
           * Don't flatten unit.
-          * Don't flatten vectors (of course their components can be
+          * Don't flatten sequences (of course their components can be
           * flattened).
           * Don't flatten objects with mutable fields, since sharing must be
           * preserved.
           *)
          not (Prod.isEmpty args)
-         andalso not (Prod.isMutable args)
+         andalso Prod.allAreImmutable args
          andalso (case con of
                      ObjectCon.Con _ => false
-                   | ObjectCon.Tuple => true
-                   | ObjectCon.Vector => false)
+                   | ObjectCon.Sequence => false
+                   | ObjectCon.Tuple => true)
 
       fun objectFields {args, con} =
          let
@@ -420,7 +420,7 @@ structure Value =
                if (case con  of
                       ObjectCon.Con _ => true
                     | ObjectCon.Tuple => true
-                    | ObjectCon.Vector => false)
+                    | ObjectCon.Sequence => false)
                   then Vector.foreach (Prod.dest args, fn {elt, isMutable} =>
                                        if isMutable
                                           then ()
@@ -607,7 +607,7 @@ fun transform2 (program as Program.T {datatypes, functions, globals, main}) =
                                      (conValue c, fn () =>
                                       makeValue (doit ())))
                          | Tuple => doit ()
-                         | Vector => doit ()
+                         | Sequence => doit ()
                      end
                 | Weak t =>
                      (case makeTypeValue t of
@@ -680,7 +680,22 @@ fun transform2 (program as Program.T {datatypes, functions, globals, main}) =
                 ; result ())
          in
             case Prim.name prim of
-               Array_toVector =>
+               Array_toArray =>
+                  let
+                     val res = result ()
+                     val () =
+                        case (Value.deObject (arg 0), Value.deObject res) of
+                           (NONE, NONE) => ()
+                         | (SOME {args = a, ...}, SOME {args = a', ...}) =>
+                              Vector.foreach2
+                              (Prod.dest a, Prod.dest a',
+                               fn ({elt = v, ...}, {elt = v', ...}) =>
+                               Value.unify (v, v'))
+                         | _ => Error.bug "DeepFlatten.primApp: Array_toArray"
+                  in
+                     res
+                  end
+             | Array_toVector =>
                   let
                      val res = result ()
                      val () =
@@ -714,7 +729,7 @@ fun transform2 (program as Program.T {datatypes, functions, globals, main}) =
       fun base b =
          case b of
             Base.Object obj => obj
-          | Base.VectorSub {vector, ...} => vector
+          | Base.SequenceSub {sequence, ...} => sequence
       fun select {base, offset} =
          let
             datatype z = datatype Value.t
@@ -973,7 +988,7 @@ fun transform2 (program as Program.T {datatypes, functions, globals, main}) =
                      val baseVar =
                         case base of
                            Base.Object x => x
-                         | Base.VectorSub {vector = x, ...} => x
+                         | Base.SequenceSub {sequence = x, ...} => x
                   in
                      case Value.deObject (varValue baseVar) of
                         NONE => simple ()

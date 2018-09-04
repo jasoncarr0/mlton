@@ -1,7 +1,7 @@
 (* Copyright (C) 2002-2007 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -403,7 +403,7 @@ fun doit program =
                                  orelse
                                  (wantedSource si
                                   andalso
-                                  not (equals (si, gcArrayAllocate))
+                                  not (equals (si, gcSequenceAllocate))
                                   andalso
                                   (not (isC si)
                                    orelse
@@ -648,8 +648,8 @@ fun doit program =
                                     in
                                        case target of
                                           Direct "GC_collect" => doit SourceInfo.gc
-                                        | Direct "GC_arrayAllocate" =>
-                                             doit SourceInfo.gcArrayAllocate
+                                        | Direct "GC_sequenceAllocate" =>
+                                             doit SourceInfo.gcSequenceAllocate
                                         | Direct "MLton_bug" => add pushes
                                         | Direct name => doit (SourceInfo.fromC name)
                                         | Indirect => doit (SourceInfo.fromC "<indirect>")

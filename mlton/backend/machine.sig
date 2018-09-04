@@ -3,7 +3,7 @@
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -72,12 +72,7 @@ signature MACHINE =
       structure Operand:
          sig
             datatype t =
-               ArrayOffset of {base: t,
-                               index: t,
-                               offset: Bytes.t,
-                               scale: Scale.t,
-                               ty: Type.t}
-             | Cast of t * Type.t
+               Cast of t * Type.t
              | Contents of {oper: t,
                             ty: Type.t}
              | Frontier
@@ -90,6 +85,11 @@ signature MACHINE =
                           ty: Type.t}
              | Real of RealX.t
              | Register of Register.t
+             | SequenceOffset of {base: t,
+                                  index: t,
+                                  offset: Bytes.t,
+                                  scale: Scale.t,
+                                  ty: Type.t}
              | StackOffset of StackOffset.t
              | StackTop
              | Word of WordX.t

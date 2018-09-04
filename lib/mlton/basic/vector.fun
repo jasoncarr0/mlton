@@ -1,7 +1,7 @@
 (* Copyright (C) 1999-2006 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -279,6 +279,14 @@ fun foreachr (a, f) = foreachri (a, f o #2)
 fun toList a = foldr (a, [], op ::)
 
 fun toListMap (a, f) = foldr (a, [], fn (a, ac) => f a :: ac)
+
+fun toListKeepAllMapi (v, f) =
+   foldri (v, [], fn (i, a, bs) =>
+           case f (i, a) of
+              NONE => bs
+            | SOME b => b :: bs)
+
+fun toListKeepAllMap (v, f) = toListKeepAllMapi (v, f o #2)
 
 fun layout l v = Layout.tuple (toListMap (v, l))
 

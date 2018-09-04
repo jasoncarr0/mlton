@@ -1,6 +1,6 @@
 (* Copyright (C) 2017 Jason Carr.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -8,9 +8,8 @@ structure Parse :> PARSE =
 struct
 
 infix 1 <|> >>=
-infix 2 <&>
 infix  3 <*> <* *>
-infixr 4 <$> <$$> <$$$> <$ <$?> 
+infixr 4 <$> <$$> <$$$> <$$$$> <$ <$?> 
 
 structure Location =
    struct
@@ -97,6 +96,7 @@ fun snd _ b = b
 
 fun curry f a b = f (a, b)
 fun curry3 f a b c = f (a, b, c)
+fun curry4 f a b c d = f (a, b, c, d)
 
 fun pure a (s : State.t)  =
   Success (a, s)
@@ -104,6 +104,7 @@ fun pure a (s : State.t)  =
 fun f <$> p = (pure f) <*> p
 fun f <$$> (p1, p2) = curry <$> (pure f) <*> p1 <*> p2
 fun f <$$$> (p1, p2, p3) = curry3 <$> (pure f) <*> p1 <*> p2 <*> p3
+fun f <$$$$> (p1, p2, p3, p4) = curry4 <$> (pure f) <*> p1 <*> p2 <*> p3 <*> p4
 fun f <$?> p = p >>= (fn a => case f a of SOME b => pure b
                                         | NONE => fn _ => Failure [])
 fun a <* b = fst <$> a <*> b
@@ -116,14 +117,6 @@ fun a <|> b = fn s => case (a s)
       | Failure err2 => Failure (List.append(err1, err2))
       | FailCut err2 => Failure (err2))
     | FailCut err1 => Failure err1
-fun a <&> b = fn s => case (a s)
-   of Success r => (case (b s) of
-        Success r' => Success r'
-      | Failure err => Failure err
-      | FailCut err => Failure err)
-    | Failure err => Failure err
-    | FailCut err => Failure err
-
 
 structure Ops = struct
    val (op >>=) = (op >>=)
@@ -132,11 +125,11 @@ structure Ops = struct
    val (op <$?>) = (op <$?>)
    val (op <$$>) = (op <$$>)
    val (op <$$$>) = (op <$$$>)
+   val (op <$$$$>) = (op <$$$$>)
    val (op <*) = (op <*)
    val (op *>) = (op *>)
    val (op <$) = (op <$)
    val (op <|>) = (op <|>)
-   val (op <&>) = (op <&>)
 end
 
 

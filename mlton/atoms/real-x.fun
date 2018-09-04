@@ -1,8 +1,8 @@
-(* Copyright (C) 2009,2011-2012 Matthew Fluet.
+(* Copyright (C) 2009,2011-2012,2018 Matthew Fluet.
  * Copyright (C) 2004-2006 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -26,6 +26,16 @@ fun zero s =
    case s of
       R32 => Real32 0.0
     | R64 => Real64 0.0
+
+fun negInf s =
+   case s of
+      R32 => Real32 PR32.negInf
+    | R64 => Real64 PR64.negInf
+
+fun posInf s =
+   case s of
+      R32 => Real32 PR32.posInf
+    | R64 => Real64 PR64.posInf
 
 fun size r =
    case r of

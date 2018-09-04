@@ -3,7 +3,7 @@
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -76,7 +76,7 @@ struct
          get #1 0 v
 
       val rec toX86Operand : t -> (x86.Operand.t * x86.Size.t) vector =
-         fn ArrayOffset {base, index, offset, scale, ty}
+         fn SequenceOffset {base, index, offset, scale, ty}
             => let
                   val base = toX86Operand base
                   val _ = Assert.assert("x86Translate.Operand.toX86Operand: Array/base",

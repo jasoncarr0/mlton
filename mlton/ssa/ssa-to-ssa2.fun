@@ -2,7 +2,7 @@
  * Copyright (C) 2004-2008 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -117,8 +117,8 @@ fun convert (S.Program.T {datatypes, functions, globals, main}) =
                      fun arg i = Vector.sub (args, i)
                      fun sub () =
                         simple
-                        (S2.Exp.Select {base = Base.VectorSub {index = arg 1,
-                                                               vector = arg 0},
+                        (S2.Exp.Select {base = Base.SequenceSub {index = arg 1,
+                                                                 sequence = arg 0},
                                         offset = 0})
                      datatype z = datatype Prim.Name.t
                    in
@@ -127,8 +127,8 @@ fun convert (S.Program.T {datatypes, functions, globals, main}) =
                        | Array_update =>
                             maybeBindUnit
                             (S2.Statement.Update
-                             {base = Base.VectorSub {index = arg 1,
-                                                     vector = arg 0},
+                             {base = Base.SequenceSub {index = arg 1,
+                                                       sequence = arg 0},
                               offset = 0,
                               value = arg 2})
                        | Ref_assign =>
@@ -172,8 +172,8 @@ fun convert (S.Program.T {datatypes, functions, globals, main}) =
                                       val iStmt = mkIStmt (iVar, i)
                                       val uStmt =
                                          S2.Statement.Update
-                                         {base = Base.VectorSub {index = iVar,
-                                                                 vector = aVar},
+                                         {base = Base.SequenceSub {index = iVar,
+                                                                   sequence = aVar},
                                           offset = 0,
                                           value = arg}
                                    in
@@ -183,8 +183,9 @@ fun convert (S.Program.T {datatypes, functions, globals, main}) =
                                val aStmt =
                                   S2.Statement.Bind
                                   {exp = S2.Exp.PrimApp {args = Vector.new1 nVar,
-                                                         prim = Prim.arrayUninit},
-                                   ty = S2.Type.array1 (S2.Type.deVector1 ty),
+                                                         prim = Prim.arrayAlloc
+                                                                {raw = false}},
+                                   ty = S2.Type.array1 (S2.Type.deSequence1 ty),
                                    var = SOME aVar}
                                val stmts = nStmt::aStmt::stmts
                             in

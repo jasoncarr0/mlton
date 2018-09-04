@@ -1,8 +1,8 @@
-(* Copyright (C) 2014 Matthew Fluet.
+(* Copyright (C) 2014,2017 Matthew Fluet.
  * Copyright (C) 2004-2007 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -30,27 +30,11 @@ signature REP_TYPE =
       include REP_TYPE_STRUCTS
 
       structure ObjectType: OBJECT_TYPE
-      (*
-       * - Junk is used for padding.  You can stick any value in, but you
-       *   can't get any value out.
-       * - In Seq, the components are listed in increasing order of
-       *   address.
-       * - In Seq ts, length ts <> 1
-       * - In Sum ts, length ts >= 2
-       * - In Sum ts, all t in ts must have same width.
-       * - In Sum ts, there are no duplicates, and the types are in order.
-       *)
       type t
       sharing type t = ObjectType.ty
 
       val bogusWord: t -> WordX.t
       val align: t * Bytes.t -> Bytes.t
-      val arrayOffsetIsOk: {base: t,
-                            index: t,
-                            offset: Bytes.t,
-                            tyconTy: ObjptrTycon.t -> ObjectType.t,
-                            result: t,
-                            scale: Scale.t} -> bool
       val bits: Bits.t -> t
       val bool: t
       val bytes: t -> Bytes.t
@@ -94,6 +78,12 @@ signature REP_TYPE =
       val resize: t * Bits.t -> t
       val seq: t vector -> t
       val seqIndex: unit -> t
+      val sequenceOffsetIsOk: {base: t,
+                               index: t,
+                               offset: Bytes.t,
+                               tyconTy: ObjptrTycon.t -> ObjectType.t,
+                               result: t,
+                               scale: Scale.t} -> bool
       val shiftArg: t
       val string: unit -> t
       val sum: t vector -> t

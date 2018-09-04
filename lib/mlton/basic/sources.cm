@@ -3,7 +3,7 @@
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -90,8 +90,8 @@ structure MLton
 structure OS
 structure Option
 structure Out
-structure ParseSexp
 structure Parse
+structure ParseSexp
 structure Pervasive
 structure Pid
 structure Pointer
@@ -385,8 +385,8 @@ mono-list.fun
 mono-option.fun
 pair.fun
 pair.sig
-parse.fun
-parse.sig
+parse-sexp.fun
+parse-sexp.sig
 pointer.sig
 pointer.sml
 port.sig

@@ -1,8 +1,9 @@
-(* Copyright (C) 1999-2007 Henry Cejtin, Matthew Fluet, Suresh
+(* Copyright (C) 2016-2017 Matthew Fluet.
+ * Copyright (C) 1999-2007 Henry Cejtin, Matthew Fluet, Suresh
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -341,15 +342,14 @@ structure WordRep =
                 in
                    (SOME acc, Bits.+ (shift, Rep.width rep), ss :: statements)
                 end)
-            val (src, statements) =
-               case accOpt of
-                  NONE => (Operand.word (WordX.zero (WordSize.fromBits bits)), [])
-                | SOME acc => (acc, statements)
             val statements =
-               [Bind {dst = (dstVar, dstTy),
-                      isMutable = false,
-                      src = src}]
-               :: statements
+               case accOpt of
+                  NONE => []
+                | SOME src =>
+                     [Bind {dst = (dstVar, dstTy),
+                            isMutable = false,
+                            src = src}]
+                     :: statements
          in
             List.fold (statements, [], fn (ss, ac) => List.fold (ss, ac, op ::))
          end
@@ -565,7 +565,7 @@ structure Base =
                         offset = offset,
                         ty = ty},
                 [])
-          | VectorSub {index, vector} =>
+          | SequenceSub {index, sequence} =>
                let
                   val eltWidth =
                      case eltWidth of
@@ -590,19 +590,19 @@ structure Base =
                                                (seqIndexSize,
                                                 {signed = false}))}
                         in
-                           (ArrayOffset {base = vector,
-                                         index = Var {var = prod, ty = seqIndexTy},
-                                         offset = offset,
-                                         scale = Scale.One,
-                                         ty = ty},
+                           (SequenceOffset {base = sequence,
+                                            index = Var {var = prod, ty = seqIndexTy},
+                                            offset = offset,
+                                            scale = Scale.One,
+                                            ty = ty},
                             [s])
                         end
                    | SOME s =>
-                        (ArrayOffset {base = vector,
-                                      index = index,
-                                      offset = offset,
-                                      scale = s,
-                                      ty = ty},
+                        (SequenceOffset {base = sequence,
+                                         index = index,
+                                         offset = offset,
+                                         scale = s,
+                                         ty = ty},
                          [])
                end
    end
@@ -800,14 +800,14 @@ structure ObjptrRep =
          Rep.T {rep = Rep.Objptr {endsIn00 = true},
                 ty = ty}
 
-      fun make {components, isVector, selects, tycon} =
+      fun make {components, isSequence, selects, tycon} =
          let
             val width =
                Vector.fold
                (components, Bytes.zero, fn ({component = c, ...}, ac) =>
                 Bytes.+ (ac, Type.bytes (Component.ty c)))
             val padBytes: Bytes.t =
-               if isVector
+               if isSequence
                   then let
                           val alignWidth =
                              case !Control.align of
@@ -834,20 +834,18 @@ structure ObjptrRep =
                           Bytes.- (alignWidth, width)
                        end
                else let
-                       (* An object needs space for a forwarding objptr. *)
-                       val width' = Bytes.max (width, Runtime.objptrSize ())
                        (* Note that with Align8 and objptrSize == 64bits,
                         * the following ensures that objptrs will be
                         * mod 8 aligned.
                         *)
-                       val width'' = Bytes.+ (width', Runtime.headerSize ())
-                       val alignWidth'' =
+                       val width' = Bytes.+ (width, Runtime.normalMetaDataSize ())
+                       val alignWidth' =
                           case !Control.align of
-                             Control.Align4 => Bytes.alignWord32 width''
-                           | Control.Align8 => Bytes.alignWord64 width''
-                       val alignWidth' = Bytes.- (alignWidth'', Runtime.headerSize ())
+                             Control.Align4 => Bytes.alignWord32 width'
+                           | Control.Align8 => Bytes.alignWord64 width'
+                       val alignWidth = Bytes.- (alignWidth', Runtime.normalMetaDataSize ())
                     in
-                       Bytes.- (alignWidth', width)
+                       Bytes.- (alignWidth, width)
                     end
             val (components, selects) =
                if Bytes.isZero padBytes
@@ -895,13 +893,6 @@ structure ObjptrRep =
                   end
             val componentsTy =
                Type.seq (Vector.map (components, Component.ty o #component))
-            (* If there are no components, then add a pad. *)
-            val componentsTy =
-               if Bits.isZero (Type.width componentsTy)
-                  then Type.zero (case !Control.align of
-                                     Control.Align4 => Bits.inWord32
-                                   | Control.Align8 => Bits.inWord64)
-               else componentsTy
          in
             T {components = components,
                componentsTy = componentsTy,
@@ -916,14 +907,14 @@ structure ObjptrRep =
          in
             Trace.trace
             ("PackedRepresentation.ObjptrRep.make",
-             fn {components, isVector, selects, tycon} =>
+             fn {components, isSequence, selects, tycon} =>
              record
              [("components",
                Vector.layout (fn {component, offset} =>
                               record [("component", Component.layout component),
                                       ("offset", Bytes.layout offset)])
                components),
-              ("isVector", Bool.layout isVector),
+              ("isSequence", Bool.layout isSequence),
               ("selects", Selects.layout selects),
               ("tycon", ObjptrTycon.layout tycon)],
              layout)
@@ -949,7 +940,7 @@ structure ObjptrRep =
          in
             make {components = Vector.new1 {component = component,
                                             offset = Bytes.zero},
-                  isVector = false,
+                  isSequence = false,
                   selects = selects,
                   tycon = opt}
          end
@@ -965,19 +956,23 @@ structure ObjptrRep =
                 let
                    val tmpVar = Var.newNoname ()
                    val tmpTy = Component.ty component
+                   val statements =
+                      Component.tuple (component,
+                                       {dst = (tmpVar, tmpTy), src = src})
                 in
-                   Component.tuple (component,
-                                    {dst = (tmpVar, tmpTy), src = src})
-                   @ (Move {dst = Offset {base = object,
-                                          offset = offset,
-                                          ty = tmpTy},
-                            src = Var {ty = tmpTy, var = tmpVar}}
-                      :: ac)
+                   if List.isEmpty statements
+                      then ac
+                      else statements
+                           @ (Move {dst = Offset {base = object,
+                                                  offset = offset,
+                                                  ty = tmpTy},
+                                    src = Var {ty = tmpTy, var = tmpVar}}
+                              :: ac)
                 end)
          in
             Object {dst = (dst, ty),
                     header = Runtime.typeIndexToHeader (ObjptrTycon.index tycon),
-                    size = Bytes.+ (Type.bytes componentsTy, Runtime.headerSize ())}
+                    size = Bytes.+ (Type.bytes componentsTy, Runtime.normalMetaDataSize ())}
             :: stores
          end
 
@@ -1046,13 +1041,13 @@ structure TupleRep =
           layout, Var.layout o #1 o #dst, List.layout Statement.layout)
          tuple
 
-      (* TupleRep.make decides how to layout a sequence of types in an object,
-       * or in the case of a vector, in a vector element.
-       * Vectors are treated slightly specially because we don't require element
+      (* TupleRep.make decides how to layout a series of types in an object,
+       * or in the case of a sequence, in a sequence element.
+       * Sequences are treated slightly specially because we don't require element
        * widths to be a multiple of the word32 size.
        * At the front of the object, we place all the word64s, followed by
        * all the word32s.  Then, we pack in all the types that are smaller than a
-       * word32.  This is done by packing in a sequence of words, greedily,
+       * word32.  This is done by packing in a series of words, greedily,
        * starting with the largest type and moving to the smallest.  We pad to
        * ensure that a value never crosses a word32 boundary.  Finally, if there
        * are any objptrs, they go at the end of the object.
@@ -1070,7 +1065,7 @@ structure TupleRep =
                      rep: Rep.t,
                      ty: S.Type.t} vector,
                 {forceBox: bool,
-                 isVector: bool}): t =
+                 isSequence: bool}): t =
          let
             val objptrs = ref []
             val numObjptrs = ref 0
@@ -1126,7 +1121,7 @@ structure TupleRep =
                forceBox
                orelse Vector.exists (rs, #isMutable)
                orelse numComponents > 1
-            val padToPrim = isVector andalso 1 = numComponents
+            val padToPrim = isSequence andalso 1 = numComponents
             val isBigEndian = Control.Target.bigEndian ()
             fun byteShiftToByteOffset (compSz: Bytes.t, tySz: Bytes.t, shift: Bytes.t) =
                if not isBigEndian
@@ -1339,7 +1334,7 @@ structure TupleRep =
          in
             if needsBox
                then Indirect (ObjptrRep.make {components = components,
-                                              isVector = isVector,
+                                              isSequence = isSequence,
                                               selects = getSelects,
                                               tycon = objptrTycon})
             else if numComponents = 0
@@ -1355,9 +1350,9 @@ structure TupleRep =
                          Layout.record [("isMutable", Bool.layout isMutable),
                                         ("rep", Rep.layout rep),
                                         ("ty", S.Type.layout ty)]),
-          fn {forceBox, isVector} =>
+          fn {forceBox, isSequence} =>
           Layout.record [("forceBox", Bool.layout forceBox),
-                         ("isVector", Bool.layout isVector)],
+                         ("isSequence", Bool.layout isSequence)],
 
           layout)
          make
@@ -1856,7 +1851,7 @@ structure TyconRep =
                   val tupleRep =
                      TupleRep.make (objptrTycon, args,
                                     {forceBox = false,
-                                     isVector = false})
+                                     isSequence = false})
                   val conRep = ConRep.Tuple tupleRep
                in
                   (One {con = con, tupleRep = tupleRep},
@@ -1883,7 +1878,7 @@ structure TyconRep =
                    val tr =
                       TupleRep.make (objptrTycon, args,
                                      {forceBox = false,
-                                      isVector = false})
+                                      isSequence = false})
                    fun makeBig () =
                       List.push (big,
                                  {con = con,
@@ -2434,16 +2429,16 @@ fun compute (program as Ssa.Program.T {datatypes, ...}) =
          ("PackedRepresentation.setTupleRep",
           S.Type.layout o #1, Layout.ignore)
          setTupleRep
-      fun vectorRep (t: S.Type.t): TupleRep.t = Value.get (tupleRep t)
-      fun setVectorRep (t: S.Type.t, tr: TupleRep.t): unit =
+      fun sequenceRep (t: S.Type.t): TupleRep.t = Value.get (tupleRep t)
+      fun setSequenceRep (t: S.Type.t, tr: TupleRep.t): unit =
          setTupleRep (t, Value.new {compute = fn () => tr,
                                     equals = TupleRep.equals,
                                     init = tr})
-      val setVectorRep =
+      val setSequenceRep =
          Trace.trace2
-         ("PackedRepresentation.setVectorRep",
+         ("PackedRepresentation.setSequenceRep",
           S.Type.layout, TupleRep.layout, Unit.layout)
-         setVectorRep
+         setSequenceRep
       val {get = tyconRep: Tycon.t -> tyconRepAndCons, set = setTyconRep, ...} =
          Property.getSetOnce (Tycon.plist,
                               Property.initRaise ("tyconRep", Tycon.layout))
@@ -2540,49 +2535,9 @@ fun compute (program as Ssa.Program.T {datatypes, ...}) =
                            in
                               r
                            end
-                      | ObjectCon.Tuple =>
+                      | ObjectCon.Sequence =>
                            let
-                              val opt = ObjptrTycon.new ()
-                              val rs =
-                                 Vector.map (Prod.dest args, typeRep o #elt)
-                              fun compute () =
-                                 TupleRep.make
-                                 (opt,
-                                  Vector.map2 (rs, Prod.dest args,
-                                               fn (r, {elt, isMutable}) =>
-                                               {isMutable = isMutable,
-                                                rep = Value.get r,
-                                                ty = elt}),
-                                  {forceBox = false, isVector = false})
-                              val tr =
-                                 Value.new {compute = compute,
-                                            equals = TupleRep.equals,
-                                            init = TupleRep.unit}
-                              val () = Vector.foreach (rs, fn r =>
-                                                       Value.affect (r, tr))
-                              val hasIdentity = Prod.isMutable args
-                              val () =
-                                 List.push
-                                 (delayedObjectTypes, fn () =>
-                                  case Value.get tr of
-                                     TupleRep.Indirect opr =>
-                                        SOME
-                                        (opt, (ObjectType.Normal
-                                               {hasIdentity = hasIdentity,
-                                                ty = ObjptrRep.componentsTy opr}))
-                                   | _ => NONE)
-                              val () = setTupleRep (t, tr)
-                              fun compute () = TupleRep.rep (Value.get tr)
-                              val r = Value.new {compute = compute,
-                                                 equals = Rep.equals,
-                                                 init = Rep.unit}
-                              val () = Value.affect (tr, r)
-                           in
-                              r
-                           end
-                      | ObjectCon.Vector =>
-                           let
-                              val hasIdentity = Prod.isMutable args
+                              val hasIdentity = Prod.someIsMutable args
                               val args = Prod.dest args
                               fun tupleRep opt =
                                  let
@@ -2595,8 +2550,8 @@ fun compute (program as Ssa.Program.T {datatypes, ...}) =
                                           rep = Value.get (typeRep elt),
                                           ty = elt}),
                                         {forceBox = true,
-                                         isVector = true})
-                                    val () = setVectorRep (t, tr)
+                                         isSequence = true})
+                                    val () = setSequenceRep (t, tr)
                                  in
                                     tr
                                  end
@@ -2610,7 +2565,7 @@ fun compute (program as Ssa.Program.T {datatypes, ...}) =
                                         let
                                            (* Delay computing tupleRep until the
                                             * delayedObjectTypes are computed
-                                            * because the vector component types
+                                            * because the sequence component types
                                             * may not be known yet.
                                             *)
                                            val tr = tupleRep opt
@@ -2620,14 +2575,10 @@ fun compute (program as Ssa.Program.T {datatypes, ...}) =
                                                     TupleRep.ty tr
                                                | TupleRep.Indirect opr =>
                                                     ObjptrRep.componentsTy opr
-                                           val elt =
-                                              if Type.isUnit ty
-                                                 then Type.zero Bits.inByte
-                                              else ty
                                         in
                                            SOME (opt,
-                                                 ObjectType.Array
-                                                 {elt = elt,
+                                                 ObjectType.Sequence
+                                                 {elt = ty,
                                                   hasIdentity = hasIdentity})
                                         end)
                                  in
@@ -2665,6 +2616,46 @@ fun compute (program as Ssa.Program.T {datatypes, ...}) =
                               constant
                               (Rep.T {rep = Rep.Objptr {endsIn00 = true},
                                       ty = Type.objptr opt})
+                           end
+                      | ObjectCon.Tuple =>
+                           let
+                              val opt = ObjptrTycon.new ()
+                              val rs =
+                                 Vector.map (Prod.dest args, typeRep o #elt)
+                              fun compute () =
+                                 TupleRep.make
+                                 (opt,
+                                  Vector.map2 (rs, Prod.dest args,
+                                               fn (r, {elt, isMutable}) =>
+                                               {isMutable = isMutable,
+                                                rep = Value.get r,
+                                                ty = elt}),
+                                  {forceBox = false, isSequence = false})
+                              val tr =
+                                 Value.new {compute = compute,
+                                            equals = TupleRep.equals,
+                                            init = TupleRep.unit}
+                              val () = Vector.foreach (rs, fn r =>
+                                                       Value.affect (r, tr))
+                              val hasIdentity = Prod.someIsMutable args
+                              val () =
+                                 List.push
+                                 (delayedObjectTypes, fn () =>
+                                  case Value.get tr of
+                                     TupleRep.Indirect opr =>
+                                        SOME
+                                        (opt, (ObjectType.Normal
+                                               {hasIdentity = hasIdentity,
+                                                ty = ObjptrRep.componentsTy opr}))
+                                   | _ => NONE)
+                              val () = setTupleRep (t, tr)
+                              fun compute () = TupleRep.rep (Value.get tr)
+                              val r = Value.new {compute = compute,
+                                                 equals = Rep.equals,
+                                                 init = Rep.unit}
+                              val () = Value.affect (tr, r)
+                           in
+                              r
                            end)
                | Real s => nonObjptr (Type.real s)
                | Thread =>
@@ -2729,7 +2720,7 @@ fun compute (program as Ssa.Program.T {datatypes, ...}) =
            case conRep con of
               ConRep.Tuple (TupleRep.Indirect opr) =>
                  (objptrTycon,
-                  ObjectType.Normal {hasIdentity = Prod.isMutable args,
+                  ObjectType.Normal {hasIdentity = Prod.someIsMutable args,
                                      ty = ObjptrRep.componentsTy opr}) :: ac
             | _ => ac))
       val objectTypes = ref objectTypes
@@ -2795,13 +2786,13 @@ fun compute (program as Ssa.Program.T {datatypes, ...}) =
                       ConRep.ShiftAndTag {selects, ...} => (selects, NONE)
                     | ConRep.Tuple tr => (TupleRep.selects tr, NONE)
                     | _ => Error.bug "PackedRepresentation.getSelects: Con,non-select")
-             | Tuple => (TupleRep.selects (tupleRep objectTy), NONE)
-             | Vector =>
-                  case vectorRep objectTy of
+             | Sequence =>
+                  (case sequenceRep objectTy of
                      tr as TupleRep.Indirect pr =>
                         (TupleRep.selects tr,
                          SOME (Type.bytes (ObjptrRep.componentsTy pr)))
-                   | _ => Error.bug "PackedRepresentation.getSelects: Vector,non-Indirect"
+                   | _ => Error.bug "PackedRepresentation.getSelects: Sequence,non-Indirect")
+             | Tuple => (TupleRep.selects (tupleRep objectTy), NONE)
          end
       fun select {base, baseTy, dst, offset} =
          case S.Type.dest baseTy of

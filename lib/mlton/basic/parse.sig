@@ -1,6 +1,6 @@
 (* Copyright (C) 2017 Jason Carr.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  *)
 
@@ -22,9 +22,8 @@ signature PARSE =
 
       (*
        * infix 1 <|> >>=
-       * infix 2 <&>
        * infix  3 <*> <* *>
-       * infixr 4 <$> <$$> <$$$> <$ <$?> 
+       * infixr 4 <$> <$$> <$$$> <$$$$> <$ <$?> 
        *)
       val >>= : 'a t * ('a -> 'b t) -> 'b t
       val <*> : ('a -> 'b) t * 'a t -> 'b t
@@ -34,6 +33,7 @@ signature PARSE =
       (* map over pairs of parsers, joining their results together *)
       val <$$> : ('a * 'b -> 'c) * ('a t * 'b t) -> 'c t
       val <$$$> : ('a * 'b * 'c -> 'd) * ('a t * 'b t * 'c t) -> 'd t
+      val <$$$$> : ('a * 'b * 'c * 'd -> 'e) * ('a t * 'b t * 'c t * 'd t) -> 'e t
       val <$?> : ('a -> 'b option) * 'a t -> 'b t
       (* match both parsers, and discard the right or left result respectively *)
       val <* : 'a t * 'b t -> 'a t
@@ -41,7 +41,6 @@ signature PARSE =
       (* try both parsers, take the result of the first success *)
       val <|> : 'a t * 'a t -> 'a t
       (* try both parsers, fail if either fails, or take the last success *)
-      val <&> : 'a t * 'a t -> 'a t
       structure Ops : sig
          val >>= : 'a t * ('a -> 'b t) -> 'b t
          val <*> : ('a -> 'b) t * 'a t -> 'b t
@@ -49,11 +48,11 @@ signature PARSE =
          val <$ : 'b * 'a t -> 'b t
          val <$$> : ('a * 'b -> 'c) * ('a t * 'b t) -> 'c t
          val <$$$> : ('a * 'b * 'c -> 'd) * ('a t * 'b t * 'c t) -> 'd t
+         val <$$$$> : ('a * 'b * 'c * 'd -> 'e) * ('a t * 'b t * 'c t * 'd t) -> 'e t
          val <$?> : ('a -> 'b option) * 'a t -> 'b t
          val <* : 'a t * 'b t -> 'a t
          val *> : 'a t * 'b t -> 'b t
          val <|> : 'a t * 'a t -> 'a t
-         val <&> : 'a t * 'a t -> 'a t
       end
 
       val pure: 'a -> 'a t

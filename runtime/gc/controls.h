@@ -3,7 +3,7 @@
  *    Jagannathan, and Stephen Weeks.
  * Copyright (C) 1997-2000 NEC Research Institute.
  *
- * MLton is released under a BSD-style license.
+ * MLton is released under a HPND-style license.
  * See the file MLton-LICENSE for details.
  */
 
@@ -47,7 +47,7 @@ struct GC_controls {
   bool mayPageHeap; /* Permit paging heap to disk during GC */
   bool mayProcessAtMLton;
   bool messages; /* Print a message at the start and end of each gc. */
-  size_t oldGenArraySize; /* Arrays larger are allocated in old gen, if possible. */
+  size_t oldGenSequenceSize; /* Sequences larger are allocated in old gen, if possible. */
   struct GC_ratios ratios;
   bool rusageMeasureGC;
   bool summary; /* Print a summary of gc info when program exits. */
