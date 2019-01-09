@@ -310,6 +310,31 @@ fun allocate {formalsStackOffsets,
       val {labelLive, remLabelLive} =
          Live.live (f, {shouldConsider = isSome o #operand o varInfo})
       val {args, blocks, name, ...} = Function.dest f
+
+      val {get = loopInfo: Label.t -> {headers: R.Block.t vector} option,
+           set = setLoopInfo,
+           rem = removeLoopInfo} =
+         Property.getSetOnce (Label.plist, Property.initRaise ("loopInfo", Label.layout))
+      val {loops, notInLoop} = DirectedGraph.LoopForest.dest (Function.loopForest f)
+      val _ = Vector.foreach (notInLoop, fn b => setLoopInfo (R.Block.label b, NONE))
+      val _ = Vector.foreach (loops,
+         fn t as {headers, ...} =>
+            let
+               fun setHeaders b =
+                  setLoopInfo (R.Block.label b, SOME {headers=headers})
+               fun goLoop {headers, child} =
+                  case DirectedGraph.LoopForest.dest child of
+                     {loops, notInLoop} =>
+                        let
+                           val _ = Vector.foreach (headers, setHeaders)
+                           val _ = Vector.foreach (notInLoop, setHeaders)
+                        in
+                           Vector.foreach (loops, goLoop)
+                        end
+            in
+               goLoop t
+            end)
+
       (*
        * Decide which variables will live in stack slots and which
        * will live in registers.
