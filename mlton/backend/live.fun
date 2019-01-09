@@ -37,9 +37,21 @@ open S
 datatype z = datatype Statement.t
 datatype z = datatype Transfer.t
 
+structure Liveness = struct
+   datatype t
+         = Active (* variable is used in this block *)
+         | Dormant (* variable is live but not used here *)
+
+   fun layout l =
+      case l of
+           Active => Layout.str "Active"
+         | Dormant => Layout.str "Dormant"
+end
+
 structure LiveInfo =
    struct
-      datatype t = T of {live: Var.t Buffer.t,
+      datatype t = T of {active: Var.t Buffer.t,
+                         live: Var.t Buffer.t,
                          liveHS: {handler: Label.t option ref,
                                   link: unit option ref},
                          name: string,
@@ -48,11 +60,14 @@ structure LiveInfo =
       fun layout (T {name, ...}) = Layout.str name
 
       fun new (name: string) =
-         T {live = Buffer.new {dummy = Var.bogus},
+         T {active = Buffer.new {dummy = Var.bogus},
+            live = Buffer.new {dummy = Var.bogus},
             liveHS = {handler = ref NONE,
                       link = ref NONE},
             name = name,
             preds = ref []}
+
+      fun active (T {active, ...}) = Buffer.toVector active
 
       fun live (T {live, ...}) = Buffer.toVector live
 
@@ -74,7 +89,7 @@ structure LiveInfo =
    end
 
 val traceConsider = 
-   Trace.trace ("Live.consider", LiveInfo.layout, Bool.layout)
+   Trace.trace2 ("Live.consider", Bool.layout, LiveInfo.layout, Bool.layout)
 
 fun live (function, {shouldConsider: Var.t -> bool}) =
    let
@@ -228,26 +243,26 @@ fun live (function, {shouldConsider: Var.t -> bool}) =
          else
             let
                val {defined, used, ...} = varInfo x
-               val defined = valOf (!defined)
+               val defined = !defined
                val todo: LiveInfo.t list ref = ref []
-               fun consider (b as LiveInfo.T {live, ...}) =
-                  if LiveInfo.equals (b, defined)
+               fun consider (isActive, b as LiveInfo.T {active, live, ...}) =
+                  if Option.exists (defined, fn b' => LiveInfo.equals (b, b'))
                      orelse (case Buffer.last live of
                                 NONE => false
                               | SOME x' => Var.equals (x, x'))
                      then false
                   else (Buffer.add (live, x)
+			; if isActive then Buffer.add (active, x) else ()
                         ; List.push (todo, b)
                         ; true)
                val consider = traceConsider consider
-               val consider = ignore o consider
-               val _ = List.foreach (!used, consider)
+               val _ = List.foreach (!used, fn b => ignore (consider (true, b)))
                fun loop () =
                   case !todo of
                      [] => ()
                    | LiveInfo.T {preds, ...} :: bs =>
                         (todo := bs
-                         ; List.foreach (!preds, consider)
+                         ; List.foreach (!preds, fn b => ignore (consider (false, b)))
                          ; loop ())
                val _ = loop ()
             in ()
@@ -323,8 +338,26 @@ fun live (function, {shouldConsider: Var.t -> bool}) =
               val {bodyInfo, argInfo, ...} = labelInfo l
               val () = removeLabelInfo l
               val {handler, link} = LiveInfo.liveHS bodyInfo
+              fun 'a joinInfoLiveness (eq: 'a * 'a -> bool) (live: 'a vector) (active: 'a vector) =
+                 let
+                    fun go i j =
+                       case (i < Vector.length (live), j < Vector.length (active)) of
+                            (true, true) =>
+                                let
+                                   val liveVal = Vector.sub (live, i)
+                                in if eq (liveVal, Vector.sub (active, j))
+                                   then (liveVal, Liveness.Active)::(go (i+1) (j+1))
+                                   else (liveVal, Liveness.Dormant)::(go (i+1) j)
+                                end
+                          | (true, false) => Vector.toListMap (active, fn a => (a, Liveness.Dormant))
+                          | (false, true) => Error.bug "Live.begin: Live and active variables don't line up"
+                          | (false, false) => []
+                  in
+                     Vector.fromList (go 0 0)
+                 end
+
            in
-              {begin = LiveInfo.live bodyInfo,
+              {begin = joinInfoLiveness Var.equals (LiveInfo.live bodyInfo) (LiveInfo.active bodyInfo),
                beginNoFormals = LiveInfo.live argInfo,
                handler = handler,
                link = link}
@@ -345,7 +378,7 @@ fun live (function, {shouldConsider: Var.t -> bool}) =
                  display
                  (seq [Label.layout l,
                        str " ",
-                       record [("begin", Vector.layout Var.layout begin),
+                       record [("begin", Vector.layout (Layout.tuple2 (Var.layout, Liveness.layout)) begin),
                                ("beginNoFormals",
                                 Vector.layout Var.layout beginNoFormals),
                                ("handler", Option.layout Label.layout handler),

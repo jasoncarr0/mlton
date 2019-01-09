@@ -15,15 +15,22 @@ signature LIVE =
    sig
       include LIVE_STRUCTS
 
+      structure Liveness: sig
+         datatype t
+		= Active (* variable is used in this block *)
+	        | Dormant (* variable is live but not used here *)
+      end
+
       val live:
          Function.t * {shouldConsider: Var.t -> bool}
-         -> {labelLive:
-             Label.t -> {(* live at beginning of block. *)
-                        begin: Var.t vector,
-                        (* live at the beginning of a block, except formals. *)
-                        beginNoFormals: Var.t vector,
-                        (* live handler slots at beginning of block. *)
-                        handler: Label.t option,
-                        link: bool},
+         -> {labelLive: Label.t
+               -> { (* live at beginning of block. *)
+                    begin: (Var.t * Liveness.t) vector,
+                    (* variables live before block arguments are considered *)
+                    beginNoFormals: Var.t vector,
+                    (* live handler slots at beginning of block. *)
+                    handler: Label.t option,
+                    link: bool
+                    },
              remLabelLive: Label.t -> unit}
    end
