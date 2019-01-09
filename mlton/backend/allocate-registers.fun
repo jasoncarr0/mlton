@@ -344,7 +344,7 @@ fun allocate {formalsStackOffsets,
                 case Kind.frameStyle kind of
                    Kind.None => ()
                  | Kind.OffsetsAndSize =>
-                      Vector.foreach (beginNoFormals, forceStack)
+                      Vector.foreach (beginNoFormals, forceStack o #1)
                  | Kind.SizeOnly => ()
              val _ =
                 if not (!hasHandler)
@@ -425,12 +425,12 @@ fun allocate {formalsStackOffsets,
                   SOME {handler = handler, link = link}
                end
          else NONE
-      fun getOperands (xs: Var.t vector): Operand.t vector =
-         Vector.map (xs, fn x => valOf (! (valOf (#operand (varInfo x)))))
+      fun getOperands (xs: (Var.t * 'a) vector): Operand.t vector =
+         Vector.map (xs, fn (x, _) => valOf (! (valOf (#operand (varInfo x)))))
       val getOperands =
          Trace.trace 
          ("AllocateRegisters.getOperands",
-          Vector.layout Var.layout, Vector.layout Operand.layout)
+          Vector.layout (Var.layout o #1), Vector.layout Operand.layout)
          getOperands
       val {get = labelInfo: R.Label.t -> Info.t, set = setLabelInfo, ...} =
          Property.getSetOnce (R.Label.plist,

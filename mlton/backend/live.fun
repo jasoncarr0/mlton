@@ -338,18 +338,23 @@ fun live (function, {shouldConsider: Var.t -> bool}) =
               val {bodyInfo, argInfo, ...} = labelInfo l
               val () = removeLabelInfo l
               val {handler, link} = LiveInfo.liveHS bodyInfo
-              fun 'a joinInfoLiveness (eq: 'a * 'a -> bool) (live: 'a vector) (active: 'a vector) =
+              (* loop through live and active parts of info, and tuple result with active if
+               * in both and dormant if in var. Precondition: active must be an ordered subvector of live *)
+              fun joinInfoLiveness info =
                  let
+                    val live = LiveInfo.live info
+                    val active = LiveInfo.active info
                     fun go i j =
                        case (i < Vector.length (live), j < Vector.length (active)) of
                             (true, true) =>
                                 let
                                    val liveVal = Vector.sub (live, i)
-                                in if eq (liveVal, Vector.sub (active, j))
+                                in if Var.equals (liveVal, Vector.sub (active, j))
                                    then (liveVal, Liveness.Active)::(go (i+1) (j+1))
                                    else (liveVal, Liveness.Dormant)::(go (i+1) j)
                                 end
-                          | (true, false) => Vector.toListMap (active, fn a => (a, Liveness.Dormant))
+                          | (true, false) => Vector.toListMap
+                              (Vector.dropPrefix (live, i), fn a => (a, Liveness.Dormant))
                           | (false, true) => Error.bug "Live.begin: Live and active variables don't line up"
                           | (false, false) => []
                   in
@@ -357,8 +362,8 @@ fun live (function, {shouldConsider: Var.t -> bool}) =
                  end
 
            in
-              {begin = joinInfoLiveness Var.equals (LiveInfo.live bodyInfo) (LiveInfo.active bodyInfo),
-               beginNoFormals = LiveInfo.live argInfo,
+              {begin = joinInfoLiveness bodyInfo,
+               beginNoFormals = joinInfoLiveness argInfo,
                handler = handler,
                link = link}
            end))
@@ -372,15 +377,15 @@ fun live (function, {shouldConsider: Var.t -> bool}) =
              Vector.foreach
              (blocks, fn b =>
               let
-                 val l = Block.label b           
+                 val l = Block.label b
+                 val layoutBegin = Vector.layout (Layout.tuple2 (Var.layout, Liveness.layout))
                  val {begin, beginNoFormals, handler, link} = labelLive l
               in
                  display
                  (seq [Label.layout l,
                        str " ",
-                       record [("begin", Vector.layout (Layout.tuple2 (Var.layout, Liveness.layout)) begin),
-                               ("beginNoFormals",
-                                Vector.layout Var.layout beginNoFormals),
+                       record [("begin", layoutBegin begin),
+                               ("beginNoFormals", layoutBegin beginNoFormals),
                                ("handler", Option.layout Label.layout handler),
                                ("link", Bool.layout link)]])
               end)

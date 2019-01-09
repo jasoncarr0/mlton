@@ -27,7 +27,7 @@ signature LIVE =
                -> { (* live at beginning of block. *)
                     begin: (Var.t * Liveness.t) vector,
                     (* variables live before block arguments are considered *)
-                    beginNoFormals: Var.t vector,
+                    beginNoFormals: (Var.t * Liveness.t) vector,
                     (* live handler slots at beginning of block. *)
                     handler: Label.t option,
                     link: bool
