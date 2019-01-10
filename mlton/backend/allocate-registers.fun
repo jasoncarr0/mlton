@@ -315,7 +315,9 @@ fun allocate {formalsStackOffsets,
            set = setLoopInfo,
            rem = removeLoopInfo} =
          Property.getSetOnce (Label.plist, Property.initRaise ("loopInfo", Label.layout))
-      val {loops, notInLoop} = DirectedGraph.LoopForest.dest (Function.loopForest f)
+      val {loops, notInLoop} = DirectedGraph.LoopForest.dest
+         (Function.loopForest (f, fn (R.Block.T {kind, ...}, _) =>
+            not (R.Kind.frameStyle kind = R.Kind.OffsetsAndSize)))
       val _ = Vector.foreach (notInLoop, fn b => setLoopInfo (R.Block.label b, NONE))
       val _ = Vector.foreach (loops,
          fn t as {headers, ...} =>
