@@ -34,24 +34,14 @@ functor Live (S: LIVE_STRUCTS): LIVE =
 struct
 
 open S
+open Rssa
 datatype z = datatype Statement.t
 datatype z = datatype Transfer.t
 
-structure Liveness = struct
-   datatype t
-         = Active (* variable is used in this block *)
-         | Dormant (* variable is live but not used here *)
-
-   fun layout l =
-      case l of
-           Active => Layout.str "Active"
-         | Dormant => Layout.str "Dormant"
-end
-
 structure LiveInfo =
    struct
-      datatype t = T of {active: Var.t Buffer.t,
-                         live: Var.t Buffer.t,
+      datatype t = T of {block: Block.t,
+                         live: (Var.t * Liveness.t) Buffer.t,
                          liveHS: {handler: Label.t option ref,
                                   link: unit option ref},
                          name: string,
@@ -59,15 +49,13 @@ structure LiveInfo =
 
       fun layout (T {name, ...}) = Layout.str name
 
-      fun new (name: string) =
-         T {active = Buffer.new {dummy = Var.bogus},
-            live = Buffer.new {dummy = Var.bogus},
+      fun new (name: string, block: Block.t) =
+         T {block = block,
+            live = Buffer.new {dummy = (Var.bogus, Liveness.bogus)},
             liveHS = {handler = ref NONE,
                       link = ref NONE},
             name = name,
             preds = ref []}
-
-      fun active (T {active, ...}) = Buffer.toVector active
 
       fun live (T {live, ...}) = Buffer.toVector live
 
@@ -89,9 +77,10 @@ structure LiveInfo =
    end
 
 val traceConsider = 
-   Trace.trace2 ("Live.consider", Bool.layout, LiveInfo.layout, Bool.layout)
+   Trace.trace3 ("Live.consider", LiveInfo.layout, Liveness.layout, LiveInfo.layout, Bool.layout)
 
-fun live (function, {shouldConsider: Var.t -> bool}) =
+fun live (function,
+   {definedVar, flowBack, shouldConsider: Var.t -> bool, usedVar}) =
    let
       val shouldConsider =
          Trace.trace ("Live.shouldConsider", Var.layout, Bool.layout)
@@ -155,11 +144,11 @@ fun live (function, {shouldConsider: Var.t -> bool}) =
              val name = Label.toString label
              val (argInfo, bodyInfo) =
                 case Vector.length args of
-                   0 => let val b = LiveInfo.new (name ^ "a")
+                   0 => let val b = LiveInfo.new (name ^ "a", block)
                         in (b, b)
                         end
-                 | _ => let val b = LiveInfo.new (name ^ "b")
-                            val b' = LiveInfo.new (name ^ "c")
+                 | _ => let val b = LiveInfo.new (name ^ "b", block)
+                            val b' = LiveInfo.new (name ^ "c", block)
                             val _ = LiveInfo.addEdge (b, b')
                         in (b, b')
                         end
@@ -171,7 +160,7 @@ fun live (function, {shouldConsider: Var.t -> bool}) =
       (* Add the control-flow edges and set the defines and uses for each
        * variable.
        *)
-      val head = LiveInfo.new "main"
+      val head = LiveInfo.new ("main", (#block o labelInfo o #start o Function.dest) function)
       val _ = Vector.foreach (args, fn (x, _) => setDefined (x, head))
       val _ =
          Vector.foreach
@@ -244,28 +233,60 @@ fun live (function, {shouldConsider: Var.t -> bool}) =
             let
                val {defined, used, ...} = varInfo x
                val defined = !defined
-               val todo: LiveInfo.t list ref = ref []
-               fun consider (isActive, b as LiveInfo.T {active, live, ...}) =
-                  if Option.exists (defined, fn b' => LiveInfo.equals (b, b'))
-                     orelse (case Buffer.last live of
-                                NONE => false
-                              | SOME x' => Var.equals (x, x'))
-                     then false
-                  else (Buffer.add (live, x)
-			; if isActive then Buffer.add (active, x) else ()
-                        ; List.push (todo, b)
-                        ; true)
+               val todo: (LiveInfo.t * Liveness.t) list ref = ref []
+               val _ = List.foreach (!used, fn (b as LiveInfo.T {block, live, ...}) =>
+                  let
+                     val lv = usedVar {block=block, var=x}
+                  in
+                     (Buffer.add (live, (x, lv))) ;
+                     (List.push (todo, (b, lv)))
+                  end)
+               val consider = fn (from as LiveInfo.T {block=fromBlock, ...}, fromVal,
+                                  to as LiveInfo.T {block=toBlock, live, ...}) =>
+                  let
+                     val newVal =
+                        Exn.withEscape (fn ret =>
+                           let
+                              open Option
+                              val _ =
+                                 Option.foreach (defined,
+                                    fn b' =>
+                                       if LiveInfo.equals (to, b')
+                                          then (ret o SOME o definedVar) {block=toBlock, var=x}
+                                          else ())
+                              val _ =
+                                 Option.map (Buffer.last live,
+                                    fn (x', l) =>
+                                       if Var.equals (x, x')
+                                          then (ret o SOME o flowBack) {earlier=toBlock, later=fromBlock,
+                                                         flowed=fromVal, present=l,
+                                                         var=x}
+                                          else ())
+                           in
+                              NONE
+                           end)
+                  in
+                     case newVal of
+                          SOME l' =>
+                              if Liveness.equals (l', fromVal)
+                                 then false
+                                 else (Buffer.add (live, (x, l'))
+                                      ; List.push (todo, (to, l'))
+                                      ; true)
+                        | NONE => false
+                  end
                val consider = traceConsider consider
-               val _ = List.foreach (!used, fn b => ignore (consider (true, b)))
                fun loop () =
                   case !todo of
+
                      [] => ()
-                   | LiveInfo.T {preds, ...} :: bs =>
+                   | (from as LiveInfo.T {preds, ...}, fromVal) :: bs =>
                         (todo := bs
-                         ; List.foreach (!preds, fn b => ignore (consider (false, b)))
+                         ; List.foreach (!preds, fn to => ignore (consider (from, fromVal, to)))
                          ; loop ())
                val _ = loop ()
-            in ()
+            in
+               ()
             end
       val processVar =
          Trace.trace ("Live.processVar", Var.layout, Unit.layout) processVar
@@ -338,32 +359,10 @@ fun live (function, {shouldConsider: Var.t -> bool}) =
               val {bodyInfo, argInfo, ...} = labelInfo l
               val () = removeLabelInfo l
               val {handler, link} = LiveInfo.liveHS bodyInfo
-              (* loop through live and active parts of info, and tuple result with active if
-               * in both and dormant if in var. Precondition: active must be an ordered subvector of live *)
-              fun joinInfoLiveness info =
-                 let
-                    val live = LiveInfo.live info
-                    val active = LiveInfo.active info
-                    fun go i j =
-                       case (i < Vector.length (live), j < Vector.length (active)) of
-                            (true, true) =>
-                                let
-                                   val liveVal = Vector.sub (live, i)
-                                in if Var.equals (liveVal, Vector.sub (active, j))
-                                   then (liveVal, Liveness.Active)::(go (i+1) (j+1))
-                                   else (liveVal, Liveness.Dormant)::(go (i+1) j)
-                                end
-                          | (true, false) => Vector.toListMap
-                              (Vector.dropPrefix (live, i), fn a => (a, Liveness.Dormant))
-                          | (false, true) => Error.bug "Live.begin: Live and active variables don't line up"
-                          | (false, false) => []
-                  in
-                     Vector.fromList (go 0 0)
-                 end
 
            in
-              {begin = joinInfoLiveness bodyInfo,
-               beginNoFormals = joinInfoLiveness argInfo,
+              {begin = LiveInfo.live bodyInfo,
+               beginNoFormals = LiveInfo.live argInfo,
                handler = handler,
                link = link}
            end))

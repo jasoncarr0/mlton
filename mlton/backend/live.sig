@@ -6,23 +6,40 @@
  * See the file MLton-LICENSE for details.
  *)
 
-signature LIVE_STRUCTS = 
+signature LIVE_STRUCTS =
    sig
-      include RSSA
+      structure Rssa: RSSA
+      structure Liveness: sig
+         type t
+
+         val equals: t * t -> bool
+         val layout: t -> Layout.t
+         val bogus: t
+      end
    end
 
-signature LIVE = 
+signature LIVE =
    sig
       include LIVE_STRUCTS
-
-      structure Liveness: sig
-         datatype t
-		= Active (* variable is used in this block *)
-	        | Dormant (* variable is live but not used here *)
-      end
+      include RSSA
 
       val live:
-         Function.t * {shouldConsider: Var.t -> bool}
+         Function.t * {
+               (* flow back to get a new liveness
+                * if the new liveness changes, then process again *)
+               flowBack: {earlier: Block.t,
+                          later: Block.t,
+
+                          flowed: Liveness.t,
+                          present: Liveness.t,
+
+                          var: Var.t} -> Liveness.t,
+               usedVar: {block: Block.t,
+                        var: Var.t} -> Liveness.t,
+               definedVar: {block: Block.t,
+                            var: Var.t} -> Liveness.t,
+               shouldConsider: Var.t -> bool
+            }
          -> {labelLive: Label.t
                -> { (* live at beginning of block. *)
                     begin: (Var.t * Liveness.t) vector,

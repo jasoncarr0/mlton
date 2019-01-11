@@ -22,6 +22,22 @@ functor SeparateVars(S: RSSA_TRANSFORM_STRUCTS): RSSA_TRANSFORM =
 struct
 
 open S
+
+structure Live = Live (struct
+   structure Rssa = Rssa
+   structure Liveness = struct
+      datatype t
+         = Warm (* used within a loop *)
+         | Cold (* live in this block, but not used in loop *)
+      val equals = op =
+      fun layout t =
+         case t of
+              Warm => Layout.str "warm"
+            | Cold => Layout.str "cold"
+      val top = Warm
+   end
+end)
+
 open Rssa
 
 fun transformFunc f =
@@ -54,6 +70,13 @@ fun transformFunc f =
             in
                goLoop t
             end)
+      val live = Live.live
+         { considerVar = SOME (if isSome o loopInfo o #label
+                                 then Warm else Cold),
+           flowBack = fn {earlier, previous, ...} =>
+               if previous = Warm andalso (isSome o loopInfo o #label) earlier
+                  then SOME Warm
+                  else SOME Cold }
    in
       f
    end

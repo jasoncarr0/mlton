@@ -35,7 +35,17 @@ in
    structure StackOffset = StackOffset
 end
 
-structure Live = Live (Rssa)
+structure Live = Live (struct
+   structure Rssa = Rssa
+   (* flat liveness *)
+   structure Liveness = struct
+      type t = unit
+
+      fun equals _ = true
+      fun layout _ = Layout.str "live"
+      val bogus = ()
+   end
+end)
 
 structure Allocation:
    sig
@@ -308,7 +318,11 @@ fun allocate {formalsStackOffsets,
                                      Func.layout (Function.name f)]
                              end)
       val {labelLive, remLabelLive} =
-         Live.live (f, {shouldConsider = isSome o #operand o varInfo})
+         Live.live (f,
+            {definedVar = fn _ => (),
+             flowBack = #present,
+             shouldConsider = isSome o #operand o varInfo,
+             usedVar = fn _ => ()})
       val {args, blocks, name, ...} = Function.dest f
 
       (*
