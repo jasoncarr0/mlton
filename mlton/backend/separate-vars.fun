@@ -44,6 +44,7 @@ open Rssa
 
 fun transformFunc f =
    let
+      (*
       val {args, blocks, name, ...} = Function.dest f
       val forest = Function.loopForest (f,
          fn (_, Block.T {kind, ...}) => not (Kind.frameStyle kind = Kind.OffsetsAndSize))
@@ -74,7 +75,11 @@ fun transformFunc f =
             end)
       val isLoop = isSome o loopInfo o Block.label
       val usedVar = fn {var, block} => if isLoop block then Liveness.Warm else Liveness.Cold
-      val live = Live.live (f,
+
+      (* calculate variable liveness within a loop, if it's active in a loop,
+       * then the variable will be Warm, else it will be Cold (even if it's live
+       * during a loop, so long as it's not used in it) *)
+      val {labelLive, remLabelLive} = Live.live (f,
          { definedVar=usedVar,
            shouldConsider=fn _ => true,
            flowBack=fn {earlier, flowed, ...} =>
@@ -82,6 +87,28 @@ fun transformFunc f =
                   then Liveness.Warm
                   else Liveness.Cold,
            usedVar=usedVar})
+
+      (* by definition, the loop is strongly connected, so if a variable is
+       * live in one header but not defined there, it's live in all of them *)
+      val _ = let
+            fun doFilter vars = Vector.keepAllMap (vars,
+               fn p => case p of
+                        (x, Liveness.Warm) => SOME x
+                      | (_, Liveness.Cold) => NONE)
+         in
+            Vector.map (loops, fn {headers, ...} =>
+               let
+                  val headerVars = (Vector.concatV o Vector.map)
+                     (headers, fn header =>
+                        let
+                           val {beginNoFormals, ...} = labelLive (Block.label header)
+                        in
+                           doFilter beginNoFormals
+                        end)
+               in
+                  ()
+               end)
+              end*)
    in
       f
    end

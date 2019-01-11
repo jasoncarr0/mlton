@@ -46,9 +46,12 @@ fun ensureFree (T {dummy, elts, length, ...}, amount: int): unit =
          end
    end
 
-fun add (v as T {elts, length, ...}, e) =
+fun setTop (v as T {elts, length, ...}, e) =
    (ensureFree (v, 1)
-    ; Array.update (!elts, !length, e)
+    ; Array.update (!elts, !length, e))
+
+fun add (v as T {elts, length, ...}, e) =
+   (setTop (v, e)
     ; Int.inc length)
 
 fun toVector (T {elts, length, ...}): 'a vector =

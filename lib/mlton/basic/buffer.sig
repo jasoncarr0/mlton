@@ -22,5 +22,6 @@ signature BUFFER =
       val length: 'a t -> int
       val new: {dummy: 'a} -> 'a t
       val reset: 'a t -> unit
+      val setTop: 'a t * 'a -> unit
       val toVector: 'a t -> 'a vector
    end

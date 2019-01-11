@@ -80,7 +80,7 @@ val traceConsider =
    Trace.trace3 ("Live.consider", LiveInfo.layout, Liveness.layout, LiveInfo.layout, Bool.layout)
 
 fun live (function,
-   {definedVar, flowBack, shouldConsider: Var.t -> bool, usedVar}) =
+   {definedVar: {block: Block.t, var:Var.t} -> Liveness.t, flowBack, shouldConsider: Var.t -> bool, usedVar}) =
    let
       val shouldConsider =
          Trace.trace ("Live.shouldConsider", Var.layout, Bool.layout)
@@ -232,48 +232,48 @@ fun live (function,
          else
             let
                val {defined, used, ...} = varInfo x
-               val defined = !defined
+               val defined = valOf (!defined)
                val todo: (LiveInfo.t * Liveness.t) list ref = ref []
                val _ = List.foreach (!used, fn (b as LiveInfo.T {block, live, ...}) =>
                   let
                      val lv = usedVar {block=block, var=x}
                   in
-                     (Buffer.add (live, (x, lv))) ;
-                     (List.push (todo, (b, lv)))
+                     if not (LiveInfo.equals (defined, b))
+                     then
+                        ((Buffer.add (live, (x, lv))) ;
+                        (List.push (todo, (b, lv))))
+                     else ()
                   end)
-               val consider = fn (LiveInfo.T {block=fromBlock, ...}, fromVal,
-                                  to as LiveInfo.T {block=toBlock, live, ...}) =>
-                  let
-                     val newVal =
-                        Exn.withEscape (fn ret =>
-                           let
-                              open Option
-                              val _ =
-                                 Option.foreach (defined,
-                                    fn b' =>
-                                       if LiveInfo.equals (to, b')
-                                          then (ret o definedVar) {block=toBlock, var=x}
-                                          else ())
-                              val last =
-                                 case Buffer.last live of
-                                      SOME (x', l) => if Var.equals (x, x') then SOME l else NONE
-                                    | NONE => NONE
-                           in
-                              flowBack {earlier=toBlock, later=fromBlock,
-                                        flowed=fromVal, present=last,
-                                        var=x}
-                           end)
-                  in
-                     if Liveness.equals (newVal, fromVal)
-                        then false
-                        else (Buffer.add (live, (x, newVal))
-                             ; List.push (todo, (to, newVal))
-                             ; true)
-                  end
+               fun consider (from as LiveInfo.T {block=fromBlock, ...},
+                             fromVal,
+                             to as LiveInfo.T {block=toBlock, live, ...}) =
+                  if LiveInfo.equals (defined, to) (*Option.exists (defined, fn b' => LiveInfo.equals (to, b'))*)
+                     then false
+                  else
+                     let
+                        val last =
+                           case Buffer.last live of
+                                SOME (x', l) => if Var.equals (x, x') then SOME l else NONE
+                              | NONE => NONE
+                        val newVal =
+                                 flowBack {earlier=toBlock, later=fromBlock,
+                                           flowed=fromVal, present=last,
+                                           var=x}
+                     in
+                        case last of
+                             NONE => ( Buffer.add (live, (x, newVal))
+                                     ; List.push (todo, (to, newVal))
+                                     ; true)
+                           | SOME l => false (*if Liveness.equals (newVal, l)
+                                          then false
+                                       else
+                                          (Buffer.setTop (live, (x, newVal))
+                                          ; List.push (todo, (to, newVal))
+                                          ; true)*)
+                     end
                val consider = traceConsider consider
                fun loop () =
                   case !todo of
-
                      [] => ()
                    | (from as LiveInfo.T {preds, ...}, fromVal) :: bs =>
                         (todo := bs
