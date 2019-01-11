@@ -31,7 +31,7 @@ signature LIVE =
                           later: Block.t,
 
                           flowed: Liveness.t,
-                          present: Liveness.t,
+                          present: Liveness.t option,
 
                           var: Var.t} -> Liveness.t,
                usedVar: {block: Block.t,

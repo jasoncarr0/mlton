@@ -252,28 +252,23 @@ fun live (function,
                                  Option.foreach (defined,
                                     fn b' =>
                                        if LiveInfo.equals (to, b')
-                                          then (ret o SOME o definedVar) {block=toBlock, var=x}
+                                          then (ret o definedVar) {block=toBlock, var=x}
                                           else ())
-                              val _ =
-                                 Option.map (Buffer.last live,
-                                    fn (x', l) =>
-                                       if Var.equals (x, x')
-                                          then (ret o SOME o flowBack) {earlier=toBlock, later=fromBlock,
-                                                         flowed=fromVal, present=l,
-                                                         var=x}
-                                          else ())
+                              val last =
+                                 case Buffer.last live of
+                                      SOME (x', l) => if Var.equals (x, x') then SOME l else NONE
+                                    | NONE => NONE
                            in
-                              NONE
+                              flowBack {earlier=toBlock, later=fromBlock,
+                                        flowed=fromVal, present=last,
+                                        var=x}
                            end)
                   in
-                     case newVal of
-                          SOME l' =>
-                              if Liveness.equals (l', fromVal)
-                                 then false
-                                 else (Buffer.add (live, (x, l'))
-                                      ; List.push (todo, (to, l'))
-                                      ; true)
-                        | NONE => false
+                     if Liveness.equals (newVal, fromVal)
+                        then false
+                        else (Buffer.add (live, (x, newVal))
+                             ; List.push (todo, (to, newVal))
+                             ; true)
                   end
                val consider = traceConsider consider
                fun loop () =

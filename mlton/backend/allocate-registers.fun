@@ -320,7 +320,7 @@ fun allocate {formalsStackOffsets,
       val {labelLive, remLabelLive} =
          Live.live (f,
             {definedVar = fn _ => (),
-             flowBack = #present,
+             flowBack = #flowed,
              shouldConsider = isSome o #operand o varInfo,
              usedVar = fn _ => ()})
       val {args, blocks, name, ...} = Function.dest f
