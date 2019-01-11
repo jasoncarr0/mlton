@@ -56,6 +56,7 @@ structure ImplementProfiling = ImplementProfiling (structure Machine = Machine
                                                    structure Rssa = Rssa)
 structure LimitCheck = LimitCheck (structure Rssa = Rssa)
 structure ParallelMove = ParallelMove ()
+structure SeparateVars = SeparateVars(structure Rssa = Rssa)
 structure SignalCheck = SignalCheck(structure Rssa = Rssa)
 structure SsaToRssa = SsaToRssa (structure Rssa = Rssa
                                  structure Ssa = Ssa)
@@ -205,6 +206,11 @@ fun toMachine (program: Ssa.Program.t, codegen) =
                       fn (p,_) => p, p)
             val p = maybePass ({name = "rssaOrderFunctions", 
                                 doit = Program.orderFunctions,
+                                execute = true}, p)
+            (* this adds redundant moves for allocation, so it can't be before
+             * any shrinking pass *)
+            val p = maybePass ({name = "separateVars",
+                                doit = SeparateVars.transform,
                                 execute = true}, p)
          in
             (p, makeProfileInfo)

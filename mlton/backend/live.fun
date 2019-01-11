@@ -241,7 +241,7 @@ fun live (function,
                      (Buffer.add (live, (x, lv))) ;
                      (List.push (todo, (b, lv)))
                   end)
-               val consider = fn (from as LiveInfo.T {block=fromBlock, ...}, fromVal,
+               val consider = fn (LiveInfo.T {block=fromBlock, ...}, fromVal,
                                   to as LiveInfo.T {block=toBlock, live, ...}) =>
                   let
                      val newVal =

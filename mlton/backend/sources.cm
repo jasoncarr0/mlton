@@ -50,6 +50,7 @@ limit-check.fun
 signal-check.fun
 live.sig
 live.fun
+separate-vars.fun
 allocate-registers.sig
 allocate-registers.fun
 equivalence-graph.sig

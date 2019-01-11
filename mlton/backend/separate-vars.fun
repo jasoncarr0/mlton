@@ -23,19 +23,21 @@ struct
 
 open S
 
+structure Liveness = struct
+   datatype t
+      = Warm (* used within a loop *)
+      | Cold (* live in this block, but not used in loop *)
+   val equals = op =
+   fun layout t =
+      case t of
+           Warm => Layout.str "warm"
+         | Cold => Layout.str "cold"
+   val bogus = Warm
+end
+
 structure Live = Live (struct
    structure Rssa = Rssa
-   structure Liveness = struct
-      datatype t
-         = Warm (* used within a loop *)
-         | Cold (* live in this block, but not used in loop *)
-      val equals = op =
-      fun layout t =
-         case t of
-              Warm => Layout.str "warm"
-            | Cold => Layout.str "cold"
-      val top = Warm
-   end
+   structure Liveness = Liveness
 end)
 
 open Rssa
@@ -45,19 +47,19 @@ fun transformFunc f =
       val {args, blocks, name, ...} = Function.dest f
       val forest = Function.loopForest (f,
          fn (_, Block.T {kind, ...}) => not (Kind.frameStyle kind = Kind.OffsetsAndSize))
-      val {get = loopInfo: Label.t -> {headers: R.Block.t vector} option,
+      val {get = loopInfo: Label.t -> {headers: Block.t vector} option,
            set = setLoopInfo,
            rem = removeLoopInfo} =
          Property.getSetOnce (Label.plist, Property.initRaise ("loopInfo", Label.layout))
       val {loops, notInLoop} = DirectedGraph.LoopForest.dest
-         (Function.loopForest (f, fn (R.Block.T {kind, ...}, _) =>
-            not (R.Kind.frameStyle kind = R.Kind.OffsetsAndSize)))
-      val _ = Vector.foreach (notInLoop, fn b => setLoopInfo (R.Block.label b, NONE))
+         (Function.loopForest (f, fn (Block.T {kind, ...}, _) =>
+            not (Kind.frameStyle kind = Kind.OffsetsAndSize)))
+      val _ = Vector.foreach (notInLoop, fn b => setLoopInfo (Block.label b, NONE))
       val _ = Vector.foreach (loops,
          fn t as {headers, ...} =>
             let
                fun setHeaders b =
-                  setLoopInfo (R.Block.label b, SOME {headers=headers})
+                  setLoopInfo (Block.label b, SOME {headers=headers})
                fun goLoop {headers, child} =
                   case DirectedGraph.LoopForest.dest child of
                      {loops, notInLoop} =>
@@ -70,13 +72,16 @@ fun transformFunc f =
             in
                goLoop t
             end)
-      val live = Live.live
-         { considerVar = SOME (if isSome o loopInfo o #label
-                                 then Warm else Cold),
-           flowBack = fn {earlier, previous, ...} =>
-               if previous = Warm andalso (isSome o loopInfo o #label) earlier
-                  then SOME Warm
-                  else SOME Cold }
+      val isLoop = isSome o loopInfo o Block.label
+      val usedVar = fn {var, block} => if isLoop block then Liveness.Warm else Liveness.Cold
+      val live = Live.live (f,
+         { definedVar=usedVar,
+           shouldConsider=fn _ => true,
+           flowBack=fn {earlier, flowed, ...} =>
+               if flowed = Liveness.Warm andalso isLoop earlier
+                  then Liveness.Warm
+                  else Liveness.Cold,
+           usedVar=usedVar})
    in
       f
    end
@@ -84,7 +89,7 @@ fun transformFunc f =
 fun transform p =
    let
       val Program.T {functions, handlesSignals, main, objectTypes} = p
-      val newFunctions = Vector.map(functions, transformFunc)
+      val newFunctions = List.map(functions, transformFunc)
    in
       Program.T {functions=newFunctions, handlesSignals=handlesSignals,
                  main=main, objectTypes=objectTypes}
