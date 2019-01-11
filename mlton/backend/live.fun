@@ -80,7 +80,7 @@ val traceConsider =
    Trace.trace3 ("Live.consider", LiveInfo.layout, Liveness.layout, LiveInfo.layout, Bool.layout)
 
 fun live (function,
-   {definedVar: {block: Block.t, var:Var.t} -> Liveness.t, flowBack, shouldConsider: Var.t -> bool, usedVar}) =
+   {flowBack, shouldConsider: Var.t -> bool, usedVar}) =
    let
       val shouldConsider =
          Trace.trace ("Live.shouldConsider", Var.layout, Bool.layout)
@@ -244,7 +244,7 @@ fun live (function,
                         (List.push (todo, (b, lv))))
                      else ()
                   end)
-               fun consider (from as LiveInfo.T {block=fromBlock, ...},
+               fun consider (LiveInfo.T {block=fromBlock, ...},
                              fromVal,
                              to as LiveInfo.T {block=toBlock, live, ...}) =
                   if LiveInfo.equals (defined, to)

@@ -80,8 +80,7 @@ fun transformFunc f =
        * then the variable will be Warm, else it will be Cold (even if it's live
        * during a loop, so long as it's not used in it) *)
       val {labelLive, remLabelLive} = Live.live (f,
-         { definedVar=usedVar,
-           shouldConsider=fn _ => true,
+         { shouldConsider=fn _ => true,
            flowBack=fn {earlier, flowed, ...} =>
                if flowed = Liveness.Warm andalso isLoop earlier
                   then Liveness.Warm

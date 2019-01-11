@@ -36,8 +36,6 @@ signature LIVE =
                           var: Var.t} -> Liveness.t,
                usedVar: {block: Block.t,
                         var: Var.t} -> Liveness.t,
-               definedVar: {block: Block.t,
-                            var: Var.t} -> Liveness.t,
                shouldConsider: Var.t -> bool
             }
          -> {labelLive: Label.t
