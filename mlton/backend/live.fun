@@ -247,7 +247,7 @@ fun live (function,
                fun consider (from as LiveInfo.T {block=fromBlock, ...},
                              fromVal,
                              to as LiveInfo.T {block=toBlock, live, ...}) =
-                  if LiveInfo.equals (defined, to) (*Option.exists (defined, fn b' => LiveInfo.equals (to, b'))*)
+                  if LiveInfo.equals (defined, to)
                      then false
                   else
                      let
@@ -264,12 +264,12 @@ fun live (function,
                              NONE => ( Buffer.add (live, (x, newVal))
                                      ; List.push (todo, (to, newVal))
                                      ; true)
-                           | SOME l => false (*if Liveness.equals (newVal, l)
+                           | SOME l => if Liveness.equals (newVal, l)
                                           then false
                                        else
                                           (Buffer.setTop (live, (x, newVal))
                                           ; List.push (todo, (to, newVal))
-                                          ; true)*)
+                                          ; true)
                      end
                val consider = traceConsider consider
                fun loop () =
