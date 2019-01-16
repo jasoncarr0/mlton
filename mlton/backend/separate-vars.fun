@@ -44,7 +44,7 @@ open Rssa
 
 fun transformFunc f =
    let
-      (*
+
       val {args, blocks, name, ...} = Function.dest f
       val forest = Function.loopForest (f,
          fn (_, Block.T {kind, ...}) => not (Kind.frameStyle kind = Kind.OffsetsAndSize))
@@ -107,7 +107,7 @@ fun transformFunc f =
                in
                   ()
                end)
-              end*)
+              end
    in
       f
    end
@@ -115,7 +115,8 @@ fun transformFunc f =
 fun transform p =
    let
       val Program.T {functions, handlesSignals, main, objectTypes} = p
-      val newFunctions = List.map(functions, transformFunc)
+      (*val newFunctions = List.map(functions, transformFunc)*)
+      val newFunctions = functions
    in
       Program.T {functions=newFunctions, handlesSignals=handlesSignals,
                  main=main, objectTypes=objectTypes}
