@@ -256,7 +256,7 @@ struct
              | Int16 => w "16"
              | Int32 => w "32"
              | Int64 => w "64"
-             | Objptr => Label.fromString (concat [prefix, "Objptr"])
+             | Objptr _ => Label.fromString (concat [prefix, "Objptr"])
              | Real32 => r "32"
              | Real64 => r "64"
              | Word8 => w "8"

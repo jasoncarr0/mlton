@@ -323,21 +323,19 @@ structure Type =
       in
          val toCType: t -> CType.t =
             fn t =>
-            if isObjptr t
-               then C.Objptr
-            else 
-               case node t of
-                  CPointer => C.CPointer
-                | GCState => C.CPointer
-                | Label _ => C.CPointer
-                | Real s =>
-                     (case s of
-                         RealSize.R32 => C.Real32
-                       | RealSize.R64 => C.Real64)
-                | _ => C.fromBits (width t)
-                         
+            case node t of
+               Objptr is => C.Objptr (SOME (Vector.map (is, ObjptrTycon.index)))
+             | CPointer => C.CPointer
+             | GCState => C.CPointer
+             | Label _ => C.CPointer
+             | Real s =>
+                  (case s of
+                      RealSize.R32 => C.Real32
+                    | RealSize.R64 => C.Real64)
+             | _ => C.fromBits (width t)
+
          val name = C.name o toCType
-            
+
          val align: t * Bytes.t -> Bytes.t =
             fn (t, n) => C.align (toCType t, n)
       end

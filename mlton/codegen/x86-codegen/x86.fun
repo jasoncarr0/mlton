@@ -107,7 +107,7 @@ struct
              | Int16 => Vector.new1 WORD
              | Int32 => Vector.new1 LONG
              | Int64 => Vector.new2 (LONG, LONG)
-             | Objptr => Vector.new1 LONG
+             | Objptr _ => Vector.new1 LONG
              | Real32 => Vector.new1 SNGL
              | Real64 => Vector.new1 DBLE
              | Word8 => Vector.new1 BYTE
@@ -483,7 +483,7 @@ struct
              | Int16 => Two
              | Int32 => Four
              | Int64 => Eight
-             | Objptr => Four
+             | Objptr _ => Four
              | Real32 => Four
              | Real64 => Eight
              | Word8 => One
@@ -1248,7 +1248,7 @@ struct
                    | Int16 => w16
                    | Int32 => w32
                    | Int64 => w64
-                   | Objptr => w32
+                   | Objptr _ => w32
                    | Real32 => [{src = fltregister FltRegister.top,
                                  dst = cReturnTempContent (0, SNGL)}]
                    | Real64 => [{src = fltregister FltRegister.top,

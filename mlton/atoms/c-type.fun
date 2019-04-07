@@ -17,7 +17,7 @@ datatype t =
  | Int16
  | Int32
  | Int64
- | Objptr
+ | Objptr of int vector option
  | Real32
  | Real64
  | Word8
@@ -27,12 +27,12 @@ datatype t =
 
 val all = [CPointer,
            Int8, Int16, Int32, Int64,
-           Objptr,
+           Objptr NONE,
            Real32, Real64,
            Word8, Word16, Word32, Word64]
 
 val cpointer = CPointer
-val objptr = Objptr
+val objptr = Objptr NONE
 val thread = objptr
 
 val equals: t * t -> bool = op =
@@ -44,7 +44,7 @@ fun memo (f: t -> 'a): t -> 'a =
       val int16 = f Int16
       val int32 = f Int32
       val int64 = f Int64
-      val objptr = f Objptr
+      val objptr = f (Objptr NONE)
       val real32 = f Real32
       val real64 = f Real64
       val word8 = f Word8
@@ -57,13 +57,14 @@ fun memo (f: t -> 'a): t -> 'a =
        | Int16 => int16
        | Int32 => int32
        | Int64 => int64
-       | Objptr => objptr
+       | Objptr NONE => objptr
        | Real32 => real32
        | Real64 => real64
        | Word8 => word8
        | Word16 => word16
        | Word32 => word32
        | Word64 => word64
+       | x => f x
    end
 
 val toString =
@@ -72,7 +73,8 @@ val toString =
     | Int16 => "Int16"
     | Int32 => "Int32"
     | Int64 => "Int64"
-    | Objptr => "Objptr" (* CHECK *)
+    | Objptr NONE => "Objptr" (* CHECK *)
+    | Objptr (SOME is) => "Objptr /*" ^ Vector.toString Int.toString is ^ "*/" (* CHECK *)
     | Real32 => "Real32"
     | Real64 => "Real64"
     | Word8 => "Word8"
@@ -89,7 +91,7 @@ fun size (t: t): Bytes.t =
     | Int16 => Bytes.fromInt 2
     | Int32 => Bytes.fromInt 4
     | Int64 => Bytes.fromInt 8
-    | Objptr => Bits.toBytes (Control.Target.Size.objptr ())
+    | Objptr _ => Bits.toBytes (Control.Target.Size.objptr ())
     | Real32 => Bytes.fromInt 4
     | Real64 => Bytes.fromInt 8
     | Word8 => Bytes.fromInt 1
@@ -104,7 +106,7 @@ fun name t =
     | Int16 => "I16"
     | Int32 => "I32"
     | Int64 => "I64"
-    | Objptr => "P" (* CHECK *)
+    | Objptr _ => "P" (* CHECK *)
     | Real32 => "R32"
     | Real64 => "R64"
     | Word8 => "W8"

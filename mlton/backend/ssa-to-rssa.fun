@@ -47,8 +47,8 @@ structure CFunction =
          struct
             open CType
             val gcState = CPointer
-            val intInf = Objptr
-            val string = Objptr
+            val intInf = Objptr NONE
+            val string = Objptr NONE
             val thread = CPointer (* CHECK; thread (= objptr) would be better? *)
          end
 
@@ -144,9 +144,9 @@ structure CFunction =
                                  readsStackTop = true,
                                  writesStackTop = true},
             prototype = (Vector.new6 (CType.gcState,
-                                      CType.Objptr,
+                                      CType.Objptr NONE,
                                       CType.seqIndex (),
-                                      CType.Objptr,
+                                      CType.Objptr NONE,
                                       CType.seqIndex (),
                                       CType.seqIndex ()),
                          NONE),

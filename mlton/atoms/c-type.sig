@@ -22,7 +22,7 @@ signature C_TYPE =
        | Int16
        | Int32
        | Int64
-       | Objptr
+       | Objptr of int vector option
        | Real32
        | Real64
        | Word8
