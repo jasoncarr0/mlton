@@ -35,7 +35,10 @@ val cpointer = CPointer
 val objptr = Objptr NONE
 val thread = objptr
 
-val equals: t * t -> bool = op =
+fun equals(t1, t2) =
+   case (t1, t2) of
+        (Objptr _, Objptr _) => true
+      | _ => t1 = t2
 
 fun memo (f: t -> 'a): t -> 'a =
    let
