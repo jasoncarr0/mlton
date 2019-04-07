@@ -257,7 +257,7 @@ fun declareGlobals (prefix: string, print) =
          List.foreach
          (CType.all, fn t =>
           let
-             val s = CType.toString t
+             val s = CType.toStringC t
           in
              print (concat [prefix, s, " global", s,
                             " [", C.int (Global.numberOfType t), "];\n"])
@@ -509,7 +509,7 @@ structure Type =
       open Type
 
       fun toC (t: t): string =
-         CType.toString (Type.toCType t)
+         CType.toStringC (Type.toCType t)
    end
 
 structure StackOffset =

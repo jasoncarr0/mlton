@@ -50,5 +50,6 @@ signature C_TYPE =
       val size: t -> Bytes.t
       val thread: t
       val toString: t -> string
+      val toStringC: t -> string
       val word: WordSize.t * {signed: bool} -> t
    end

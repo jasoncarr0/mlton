@@ -282,7 +282,8 @@ fun transformFunc func =
                in
                   Vector.foreach (rewrites, fn v => show (seq [str "Rewriting ", Var.layout v]))
                end)
-            val statements = Vector.map (rewrites,
+            val statements = Vector.new0 ()
+               (*Vector.map (rewrites,
                fn v =>
                   let
                      val ty = varTy v
@@ -296,7 +297,7 @@ fun transformFunc func =
                      Statement.Bind {dst=dst, src=src,
                      (* temporary hack *)
                      isMutable= true}
-                  end)
+                  end) *)
             (* we use our condition here, the kind of a block on the edge
              * of a loop is never anything interesting, since calls are
              * unconditional, there is always an intervening block

@@ -57,17 +57,30 @@ fun memo (f: t -> 'a): t -> 'a =
        | Int16 => int16
        | Int32 => int32
        | Int64 => int64
-       | Objptr NONE => objptr
+       | Objptr _ => objptr
        | Real32 => real32
        | Real64 => real64
        | Word8 => word8
        | Word16 => word16
        | Word32 => word32
        | Word64 => word64
-       | x => f x
    end
 
 val toString =
+   fn CPointer => "CPointer"
+    | Int8 => "Int8"
+    | Int16 => "Int16"
+    | Int32 => "Int32"
+    | Int64 => "Int64"
+    | Objptr _ => "Objptr" (* CHECK *)
+    | Real32 => "Real32"
+    | Real64 => "Real64"
+    | Word8 => "Word8"
+    | Word16 => "Word16"
+    | Word32 => "Word32"
+    | Word64 => "Word64"
+
+val toStringC =
    fn CPointer => "CPointer"
     | Int8 => "Int8"
     | Int16 => "Int16"
