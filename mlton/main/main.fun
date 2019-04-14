@@ -252,6 +252,9 @@ fun makeOptions {usage} =
        (Expert, "bounce-rssa-limit", "<n>",
         "Maximum number of rssa variables to bounce around gc",
         Int (fn i => bounceRssaLimit := (if i < 0 then NONE else SOME i))),
+       (Expert, "bounce-rssa-random", "{true|false}",
+        "Randomly choose based on opt-fuel",
+        boolRef bounceRssaRandom),
        (Expert, "bounce-rssa-locations", " {anyGC|gcCollect}",
         "which calls to bounce rssa variables around",
         SpaceString (fn s =>

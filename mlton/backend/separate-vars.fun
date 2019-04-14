@@ -163,14 +163,44 @@ fun transformFunc func =
          (Label.plist, Property.initFun
             (fn _ => {inLoop=ref NotInLoop, block=ref NONE}))
 
-      val numRewritten = ref 0
 
+      val optFuel = Option.fold (!Control.optFuel, 0, op +)
+      val randomRewriteTable =
+        if !Control.bounceRssaRandom andalso optFuel > 0
+          then
+            (Control.optFuel := SOME 0 ;
+             SOME
+              (Array.new
+               (optFuel,
+                (Var.bogus, Weight.new 0))))
+          else NONE
+      fun insertRandom (t, k, x) =
+        let
+          val n = Array.size t
+        in
+          if n > 0
+          then
+            let
+              val i = if k < n
+                then n
+                else Random.natLessThan (n + k)
+            in
+              if i < n
+              then Array.update (t, i, x)
+              else ()
+            end
+          else ()
+        end
+      val numRewritten = ref 0
       fun setRewrite (v, weight) =
-         case varInfo v of
-              Consider _ =>
+         case (randomRewriteTable, varInfo v) of
+              (NONE, Consider _) =>
                   if Control.optFuelAvailAndUse ()
                   then ( Int.inc numRewritten ; setVarInfo (v, Rewrite weight))
                   else ()
+            | (SOME t, Consider _) =>
+                  (insertRandom (t, !numRewritten, (v, weight));
+                        Int.inc numRewritten)
             | _ => ()
 
       val n = !Control.bounceRssaLimit
@@ -250,7 +280,7 @@ fun transformFunc func =
                   in
                      insert (i + 1, x, xw)
                   end
-              val insert = fn (i, x, xw) =>
+               val insert = fn (i, x, xw) =>
                 let
                    val shouldTry = not (Array.exists (
                      heap,
@@ -283,6 +313,14 @@ fun transformFunc func =
       val _ = case n of
            SOME n => Vector.foreach (loops, mkLoopPicker n)
          | NONE => ()
+      val _ =
+        case randomRewriteTable of
+             SOME t => Array.foreach (t,
+               fn (v, w) =>
+                 if not (Var.equals (v, Var.bogus))
+                  then setVarInfo (v, Rewrite w)
+                  else ())
+           | NONE => ()
 
       val _ = Vector.foreach (blocks,
          fn (b as Block.T {label, ...}) =>
