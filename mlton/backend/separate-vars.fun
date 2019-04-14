@@ -65,6 +65,12 @@ structure Weight = struct
              | (Local, LoopLocal) => true
              | _ => false
       val equals = op =
+
+      fun layout t =
+        Layout.str (case t of
+            FunArg => "FunArg"
+          | Local => "Local"
+          | LoopLocal => "LoopLocal")
    end
 
    type t = {depth: int, count: int, localDef: DefLoc.t}
@@ -86,6 +92,17 @@ structure Weight = struct
                andalso (Int.< (count1, count2)))
    fun setLocalDef ({depth, count, localDef=_}, newLocalDef) =
       {depth=depth, count=count, localDef=newLocalDef}
+
+   fun layout {depth, count, localDef} =
+     let open Layout in
+       seq
+        [str "Defined at ",
+         DefLoc.layout localDef,
+         str " having ",
+         Int.layout count,
+         str " @ ",
+         Int.layout depth]
+     end
 end
 
 datatype varinfo
@@ -284,10 +301,10 @@ fun transformFunc func =
             val args = Vector.map (destArgs, fn (v, ty) => (Var.new v, ty))
             val live = beginNoFormals destLabel
 
-            val rewrites = Vector.keepAll (live, fn v =>
+            val rewrites = Vector.keepAllMap (live, fn v =>
                case varInfo v of
-                    Rewrite _ => true
-                  | _ => false)
+                    Rewrite w => SOME (v, w)
+                  | _ => NONE)
             val _ = Control.diagnostics (fn show =>
                let
                   open Layout
@@ -296,10 +313,12 @@ fun transformFunc func =
                                 str (case direction of EnterLoop => "entrance" | LeaveLoop => "exit"),
                                 str ")"])
                in
-                  Vector.foreach (rewrites, fn v => show (seq [str "Rewriting ", Var.layout v]))
+                  Vector.foreach (rewrites, fn (v, w) => show
+                    (seq [str "Rewriting ", Var.layout v,
+                          str ":", Weight.layout w]))
                end)
             val statements = Vector.map (rewrites,
-               fn v =>
+               fn (v, _) =>
                   let
                      val ty = varTy v
                      val (src, dst) =
