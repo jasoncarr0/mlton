@@ -250,6 +250,17 @@ fun transformFunc func =
                   in
                      insert (i + 1, x, xw)
                   end
+              val insert = fn (i, x, xw) =>
+                let
+                   val shouldTry = not (Array.exists (
+                     heap,
+                      fn (y, _) =>
+                        Option.equals (x, y, Var.equals)))
+                in
+                   if shouldTry
+                      then insert (i, x, xw)
+                      else ()
+                end
             fun insertVar x =
                case
                   varInfo x of
