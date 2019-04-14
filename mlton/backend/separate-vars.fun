@@ -193,7 +193,7 @@ fun transformFunc func =
                         | SOME _ => modVarInfo (v,
                              fn w => Weight.inc (w, depth)))
               val _ = (#inLoop o labelInfo) label :=
-                InLoop {header=false, lid=i}
+                InLoop {header=false, lid=depth}
            in
              ()
            end
