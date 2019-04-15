@@ -67,8 +67,8 @@ val bounceRssaLimit = control {name = "bounceRssaLimit",
                                toString = Option.toString Int.toString}
 
 val bounceRssaRandom = control {name = "bounceRssaRandom",
-                                default = false,
-                                toString = Bool.toString}
+                                default = NONE,
+                                toString = Option.toString Real.toString}
 
 
 structure Chunk =

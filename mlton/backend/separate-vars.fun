@@ -163,44 +163,23 @@ fun transformFunc func =
          (Label.plist, Property.initFun
             (fn _ => {inLoop=ref NotInLoop, block=ref NONE}))
 
-
-      val optFuel = Option.fold (!Control.optFuel, 0, op +)
-      val randomRewriteTable =
-        if !Control.bounceRssaRandom andalso optFuel > 0
-          then
-            (Control.optFuel := SOME 0 ;
-             SOME
-              (Array.new
-               (optFuel,
-                (Var.bogus, Weight.new 0))))
-          else NONE
-      fun insertRandom (t, k, x) =
-        let
-          val n = Array.size t
-        in
-          if n > 0
-          then
-            let
-              val i = if k < n
-                then n
-                else Random.natLessThan (n + k)
-            in
-              if i < n
-              then Array.update (t, i, x)
-              else ()
-            end
-          else ()
-        end
       val numRewritten = ref 0
+      val prob = !Control.bounceRssaRandom
+      fun insertRandom (p, var, weight) =
+          if Random.real () <= p
+            then setVarInfo (var, Rewrite weight)
+            else (
+              Control.diagnostic (fn () => Layout.seq [Layout.str "Skipping ",
+              Var.layout var]);
+              setVarInfo (var, Ignore))
       fun setRewrite (v, weight) =
-         case (randomRewriteTable, varInfo v) of
+         case (prob, varInfo v) of
               (NONE, Consider _) =>
                   if Control.optFuelAvailAndUse ()
                   then ( Int.inc numRewritten ; setVarInfo (v, Rewrite weight))
                   else ()
-            | (SOME t, Consider _) =>
-                  (insertRandom (t, !numRewritten, (v, weight));
-                        Int.inc numRewritten)
+            | (SOME p, Consider _) =>
+                  insertRandom (p, v, weight)
             | _ => ()
 
       val n = !Control.bounceRssaLimit
@@ -208,7 +187,9 @@ fun transformFunc func =
          let
             open Layout
          in
-            seq [str "Bounce rssa limit: ", Option.layout Int.layout n]
+            align [seq [str "Bounce rssa limit: ", Option.layout Int.layout n],
+                   seq [str "Bounce rssa probability: ", Option.layout
+                   Real.layout (!Control.bounceRssaRandom)]]
          end)
       val _ = let
          val counter = ref 0
@@ -222,7 +203,7 @@ fun transformFunc func =
                        case varInfo v of
                             Ignore => Ignore
                           | Consider w => Consider (f w)
-                          | Rewrite _ => Error.bug "Unexpected Rewrite"
+                          | Rewrite w => Rewrite (f w) (*Error.bug "Unexpected Rewrite"*)
                     val _ = setVarInfo (v, newInfo)
                  in
                     ()
@@ -313,14 +294,10 @@ fun transformFunc func =
       val _ = case n of
            SOME n => Vector.foreach (loops, mkLoopPicker n)
          | NONE => ()
-      val _ =
-        case randomRewriteTable of
-             SOME t => Array.foreach (t,
-               fn (v, w) =>
-                 if not (Var.equals (v, Var.bogus))
-                  then setVarInfo (v, Rewrite w)
-                  else ())
-           | NONE => ()
+      (* val optFuel = Option.fold (!Control.optFuel, 0, op +)
+       *
+       * Fix Control.optFuel?
+       * *)
 
       val _ = Vector.foreach (blocks,
          fn (b as Block.T {label, ...}) =>
@@ -364,7 +341,8 @@ fun transformFunc func =
                in
                   Vector.foreach (rewrites, fn (v, w) => show
                     (seq [str "Rewriting ", Var.layout v,
-                          str ":", Weight.layout w]))
+                          str ": ", Type.layout (varTy v),
+                          str " having ", Weight.layout w]))
                end)
             val statements = Vector.map (rewrites,
                fn (v, _) =>
