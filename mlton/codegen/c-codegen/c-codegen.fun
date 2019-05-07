@@ -350,6 +350,57 @@ fun outputDeclarations
       fun declareAtMLtons () =
          declareArray ("char*", "atMLtons", !Control.atMLtons, C.string o #2)
       fun declareObjectTypes () =
+         (let
+            val buf = Buffer.new {dummy=Machine.Type.unit}
+            val _ =
+            Vector.foreachi (objectTypes,
+               fn (i, ot) =>
+                  Exn.withEscape (fn exit =>
+                  let
+                     val contents =
+                        case ot of
+                             ObjectType.Normal {ty, ...} => ty
+                           | ObjectType.Sequence {elt, ...} => elt
+                           | _ => exit ()
+                     fun addTys t =
+                        case Machine.Type.deSeq t of
+                             SOME ts => Vector.foreach (ts, addTys)
+                           | NONE => Buffer.add (buf, t)
+
+                     val _ = Buffer.reset buf
+                     val _ = addTys contents
+                     val tys = Buffer.toVector buf
+
+                     val _ = print (concat
+                        ["struct opt_", Int.toString i, " {\n"])
+                     val _ = Vector.foreachi (tys,
+                        fn (j, t') =>
+                           let
+                              val w = (Bits.toInt o Machine.Type.width) t'
+                              val isObjptr = Machine.Type.isObjptr t'
+                              val typ =
+                                 if isObjptr
+                                 then (CType.toStringC o Machine.Type.toCType) t'
+                                 else "long long int"
+                              val name =
+                                 if w = 0
+                                 then ""
+                                 else concat ["f", Int.toString j]
+                              val bitField =
+                                 if isObjptr
+                                 then ""
+                                 else concat [" \t: ", Int.toString w]
+                           in
+                              print (concat ["\t", typ, " ", name, bitField, ";\n"])
+                           end)
+                     val _ = print "};\n"
+                  in
+                     ()
+                  end))
+         in
+            ()
+         end
+         ;
          declareArray
          ("struct GC_objectType", "objectTypes", objectTypes,
           fn (_, ty) =>
@@ -405,7 +456,7 @@ fun outputDeclarations
                      C.bool hasIdentity, ", ",
                      C.int bytesNonObjptrs, ", ",
                      C.int numObjptrs, " }"]
-          end)
+          end))
       fun declareMLtonMain () =
          let
             val align =
