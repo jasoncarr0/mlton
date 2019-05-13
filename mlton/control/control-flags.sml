@@ -122,6 +122,10 @@ val contifyIntoMain = control {name = "contifyIntoMain",
                                default = false,
                                toString = Bool.toString}
 
+val splitCTypes = control {name = "split-ctypes",
+                            default = false,
+                            toString = Bool.toString}
+
 val debug = control {name = "debug",
                      default = false,
                      toString = Bool.toString}

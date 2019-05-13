@@ -90,7 +90,12 @@ val toStringC =
     | Int32 => "Int32"
     | Int64 => "Int64"
     | Objptr NONE => "Objptr" (* CHECK *)
-    | Objptr (SOME is) => "Objptr /*" ^ Vector.toString Int.toString is ^ "*/" (* CHECK *)
+    | Objptr (SOME is) =>
+         if !Control.splitCTypes andalso Vector.length is = 1
+         (* we can only really do this for a single objptr,
+          * unions would take more effort and might be incorrect *)
+         then "Objptr" ^ Vector.toString Int.toString is
+         else "Objptr /*" ^ Vector.toString Int.toString is ^ "*/"
     | Real32 => "Real32"
     | Real64 => "Real64"
     | Word8 => "Word8"

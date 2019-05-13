@@ -303,6 +303,9 @@ fun makeOptions {usage} =
                                                  end
                                             else usage ()
                                       end))),
+       (Expert, "splitCTypes", " {true|false}",
+        "",
+        Bool (fn b => (splitCTypes := b))),
        (Expert, "closure-convert-globalize", " {true|false}",
         "whether to globalize during closure conversion",
         Bool (fn b => (closureConvertGlobalize := b))),
