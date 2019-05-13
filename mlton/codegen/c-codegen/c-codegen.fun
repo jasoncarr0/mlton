@@ -379,9 +379,7 @@ fun outputDeclarations
                               val w = (Bits.toInt o Machine.Type.width) t'
                               val isObjptr = Machine.Type.isObjptr t'
                               val typ =
-                                 if isObjptr
-                                 then (CType.toStringC o Machine.Type.toCType) t'
-                                 else "long long int"
+                                 (CType.toStringC o Machine.Type.toNextCType) t'
                               val name =
                                  if w = 0
                                  then ""

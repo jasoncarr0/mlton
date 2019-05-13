@@ -228,6 +228,13 @@ structure Type =
                else NONE
           | _ => NONE
 
+      val deObjptrs: t -> ObjptrTycon.t vector option =
+         fn t => 
+         case node t of
+            Objptr opts => SOME opts
+          | _ => NONE
+
+
       val deReal: t -> RealSize.t option =
          fn t =>
          case node t of
@@ -320,19 +327,41 @@ structure Type =
                    | _ => Error.bug (concat ["RepType.Type.CType.fromBits: ",
                                              Bits.toString b])
             end
+         fun toCTypeWith (f: t -> CType.t): t -> CType.t =
+            fn t =>
+               case node t of
+                  Objptr is => C.Objptr (SOME (Vector.map (is, ObjptrTycon.index)))
+                | CPointer => C.CPointer
+                | GCState => C.CPointer
+                | Label _ => C.CPointer
+                | Real s =>
+                     (case s of
+                         RealSize.R32 => C.Real32
+                       | RealSize.R64 => C.Real64)
+                | _ => f t
       in
          val toCType: t -> CType.t =
-            fn t =>
-            case node t of
-               Objptr is => C.Objptr (SOME (Vector.map (is, ObjptrTycon.index)))
-             | CPointer => C.CPointer
-             | GCState => C.CPointer
-             | Label _ => C.CPointer
-             | Real s =>
-                  (case s of
-                      RealSize.R32 => C.Real32
-                    | RealSize.R64 => C.Real64)
-             | _ => C.fromBits (width t)
+            toCTypeWith (C.fromBits o width)
+
+         val toNextCType: t -> CType.t =
+            toCTypeWith (fn t =>
+               let
+                  val w = width t
+                  val wi = Bits.toInt w
+                  val w =
+                     if wi <= 8
+                        then Bits.fromInt 8
+                     else if wi <= 16
+                        then Bits.fromInt 16
+                     else if wi <= 32
+                        then Bits.fromInt 32
+                     else if wi <= 64
+                        then Bits.fromInt 64
+                     else Error.bug (concat ["RepType.Type.toNextCType: ",
+                                             Bits.toString w])
+               in
+                  C.fromBits w
+               end)
 
          val name = C.name o toCType
 

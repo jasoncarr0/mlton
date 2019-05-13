@@ -50,6 +50,7 @@ signature REP_TYPE =
       val compareRes: t
       val deLabel: t -> Label.t option
       val deObjptr: t -> ObjptrTycon.t option
+      val deObjptrs: t -> ObjptrTycon.t vector option
       val deReal: t -> RealSize.t option
       val deSeq: t -> t vector option
       val deWord: t -> WordSize.t option
@@ -89,6 +90,7 @@ signature REP_TYPE =
       val sum: t vector -> t
       val thread: unit -> t
       val toCType: t -> CType.t
+      val toNextCType: t -> CType.t
       val unit: t
       val width: t -> Bits.t
       val word: WordSize.t -> t
