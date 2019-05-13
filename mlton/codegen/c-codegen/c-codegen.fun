@@ -244,6 +244,12 @@ fun outputIncludes (includes, print) =
                                      print ">\n"))
     ; print "\n")
 
+fun outputRelativeIncludes (includes, print) =
+   (List.foreach (includes, fn i => (print "#include \"";
+                                     print i;
+                                     print "\"\n"))
+    ; print "\n")
+
 fun declareProfileLabel (l, print) =
    C.call ("DeclareProfileLabel", [ProfileLabel.toString l], print)
 
@@ -350,55 +356,6 @@ fun outputDeclarations
       fun declareAtMLtons () =
          declareArray ("char*", "atMLtons", !Control.atMLtons, C.string o #2)
       fun declareObjectTypes () =
-         (let
-            val buf = Buffer.new {dummy=Machine.Type.unit}
-            val _ =
-            Vector.foreachi (objectTypes,
-               fn (i, ot) =>
-                  Exn.withEscape (fn exit =>
-                  let
-                     val contents =
-                        case ot of
-                             ObjectType.Normal {ty, ...} => ty
-                           | ObjectType.Sequence {elt, ...} => elt
-                           | _ => exit ()
-                     fun addTys t =
-                        case Machine.Type.deSeq t of
-                             SOME ts => Vector.foreach (ts, addTys)
-                           | NONE => Buffer.add (buf, t)
-
-                     val _ = Buffer.reset buf
-                     val _ = addTys contents
-                     val tys = Buffer.toVector buf
-
-                     val _ = print (concat
-                        ["struct opt_", Int.toString i, " {\n"])
-                     val _ = Vector.foreachi (tys,
-                        fn (j, t') =>
-                           let
-                              val w = (Bits.toInt o Machine.Type.width) t'
-                              val isObjptr = Machine.Type.isObjptr t'
-                              val typ =
-                                 (CType.toStringC o Machine.Type.toNextCType) t'
-                              val name =
-                                 if w = 0
-                                 then ""
-                                 else concat ["f", Int.toString j]
-                              val bitField =
-                                 if isObjptr
-                                 then ""
-                                 else concat [" \t: ", Int.toString w]
-                           in
-                              print (concat ["\t", typ, " ", name, bitField, ";\n"])
-                           end)
-                     val _ = print "};\n"
-                  in
-                     ()
-                  end))
-         in
-            ()
-         end
-         ;
          declareArray
          ("struct GC_objectType", "objectTypes", objectTypes,
           fn (_, ty) =>
@@ -454,7 +411,7 @@ fun outputDeclarations
                      C.bool hasIdentity, ", ",
                      C.int bytesNonObjptrs, ", ",
                      C.int numObjptrs, " }"]
-          end))
+          end)
       fun declareMLtonMain () =
          let
             val align =
@@ -629,9 +586,60 @@ fun declareFFI (Chunk.T {blocks, ...}, {print: string -> unit}) =
        end)
    end
 
+fun outputStructs (objectTypes, print) =
+      let
+         val buf = Buffer.new {dummy=Machine.Type.unit}
+         val _ =
+         Vector.foreachi (objectTypes,
+            fn (i, ot) =>
+               let
+                  val contents =
+                     case ot of
+                          ObjectType.Normal {ty, ...} => SOME ty
+                        | ObjectType.Sequence {elt, ...} => SOME elt
+                        | ObjectType.Weak tyopt => tyopt
+                        | ObjectType.Stack => NONE
+                  fun addTys t =
+                     case Machine.Type.deSeq t of
+                          SOME ts => Vector.foreach (ts, addTys)
+                        | NONE => Buffer.add (buf, t)
+
+                  val _ = Buffer.reset buf
+                  val _ = Option.foreach (contents, addTys)
+                  val tys = Buffer.toVector buf
+
+                  val _ = print (concat
+                     ["struct opt_", Int.toString i, " {\n"])
+                  val _ = Vector.foreachi (tys,
+                     fn (j, t') =>
+                        let
+                           val w = (Bits.toInt o Machine.Type.width) t'
+                           val isObjptr = Machine.Type.isObjptr t'
+                           val typ =
+                              (CType.toStringC o Machine.Type.toNextCType) t'
+                           val name =
+                              if w = 0
+                              then ""
+                              else concat ["f", Int.toString j]
+                           val bitField =
+                              if isObjptr
+                              then ""
+                              else concat [" \t: ", Int.toString w]
+                        in
+                           print (concat ["\t", typ, " ", name, bitField, ";\n"])
+                        end)
+                  val _ = print "};\n"
+               in
+                  ()
+               end)
+      in
+         ()
+      end
+
 fun output {program as Machine.Program.T {chunks,
                                           frameLayouts,
-                                          main = {chunkLabel, label}, ...},
+                                          main = {chunkLabel, label},
+                                          objectTypes, ...},
             outputC: unit -> {file: File.t,
                               print: string -> unit,
                               done: unit -> unit}} =
@@ -831,7 +839,7 @@ fun output {program as Machine.Program.T {chunks,
       val amTimeProfiling =
          !Control.profile = Control.ProfileTimeField
          orelse !Control.profile = Control.ProfileTimeLabel
-      fun outputChunk (chunk as Chunk.T {chunkLabel, blocks, regMax, ...}) =
+      fun outputChunk structsFile (chunk as Chunk.T {chunkLabel, blocks, regMax, ...}) =
          let
             val {done, print, ...} = outputC ()
             fun declareChunks () =
@@ -1251,6 +1259,7 @@ fun output {program as Machine.Program.T {chunks,
                                Bytes.toString (GCField.offset f), "\n"]))
          in
             outputIncludes (["c-chunk.h"], print)
+            ; outputRelativeIncludes ([structsFile], print)
             ; outputOffsets ()
             ; declareGlobals ("PRIVATE extern ", print)
             ; declareFFI (chunk, {print = print})
@@ -1297,7 +1306,11 @@ fun output {program as Machine.Program.T {chunks,
                              print = print,
                              rest = rest}
       val _ = done ()
-      val _ = List.foreach (chunks, outputChunk)
+      val {print, done, file=structs} = outputC ()
+      val structs = File.toString structs
+      val _ = outputStructs (objectTypes, print)
+      val _ = done ()
+      val _ = List.foreach (chunks, outputChunk structs)
    in
       ()
    end
