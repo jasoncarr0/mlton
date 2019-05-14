@@ -296,14 +296,14 @@ fun outputDeclarations
                 ; (List.foreach
                    (CType.all, fn t =>
                     print (concat ["\tSaveArray (global",
-                                   CType.toString t, ", f);\n"])))
+                                   CType.toStringC t, ", f);\n"])))
                 ; print "\treturn 0;\n}\n")
             val _ =
                (print "static int loadGlobals (FILE *f) {\n"
                 ; (List.foreach
                    (CType.all, fn t =>
                     print (concat ["\tLoadArray (global",
-                                   CType.toString t, ", f);\n"])))
+                                   CType.toStringC t, ", f);\n"])))
                 ; print "\treturn 0;\n}\n")
          in
             ()
@@ -516,6 +516,9 @@ structure Type =
 
       fun toC (t: t): string =
          CType.toStringC (Type.toCType t)
+      (* globals don't support this output for now *)
+      fun globalToC (t: t): string =
+         CType.toString (Type.toCType t)
    end
 
 structure StackOffset =
@@ -589,6 +592,7 @@ fun declareFFI (Chunk.T {blocks, ...}, {print: string -> unit}) =
 fun outputStructs (objectTypes, print) =
       let
          val buf = Buffer.new {dummy=Machine.Type.unit}
+         val _ = outputIncludes (["c-chunk.h"], print)
          val _ =
          Vector.foreachi (objectTypes,
             fn (i, ot) =>
@@ -615,18 +619,18 @@ fun outputStructs (objectTypes, print) =
                         let
                            val w = (Bits.toInt o Machine.Type.width) t'
                            val isObjptr = Machine.Type.isObjptr t'
-                           val typ =
-                              (CType.toStringC o Machine.Type.toNextCType) t'
+                           val cty = Machine.Type.toNextCType t'
+                           val tstring = CType.toStringC cty
                            val name =
                               if w = 0
                               then ""
                               else concat ["f", Int.toString j]
                            val bitField =
-                              if isObjptr
+                              if w = (Bits.toInt o Bytes.toBits o CType.size) cty
                               then ""
                               else concat [" \t: ", Int.toString w]
                         in
-                           print (concat ["\t", typ, " ", name, bitField, ";\n"])
+                           print (concat ["\t", tstring, " ", name, bitField, ";\n"])
                         end)
                   val _ = print "};\n"
                in
@@ -755,7 +759,7 @@ fun output {program as Machine.Program.T {chunks,
              | Global g =>
                   if Global.isRoot g
                      then concat ["G",
-                                  C.args [Type.toC (Global.ty g),
+                                  C.args [Type.globalToC (Global.ty g),
                                           Int.toString (Global.index g)]]
                   else concat ["GPNR", C.args [Int.toString (Global.index g)]]
              | Label l => labelToStringIndex l
