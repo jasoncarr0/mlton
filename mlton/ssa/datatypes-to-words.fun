@@ -23,7 +23,7 @@ datatype ConVal =
  | Word of word
  | Successor
 
-fun makeTransform (Program.T {datatypes, main, functions, ...}) =
+fun transform (Program.T {datatypes, main, functions, ...}) =
    let
       val {get=tyconRepr, set=setTyconRepr} =
          Property.getSetOnce (Tycon.plist, Property.initConst Unchanged)
@@ -54,14 +54,95 @@ fun makeTransform (Program.T {datatypes, main, functions, ...}) =
 
          else ())
 
-      (* TODO: also need to fix globals *)
-   in
-      fn {args, blocks, mayInline, name, raises, returns, start} =>
+
+
+      (* for successor, we'll need to check overflow, so it can't be an expression,
+       * at this level *)
+      fun handleExp (oom, one) exp =
+         case exp of
+
+      datatype Line =
+           Statement of Statement.t
+         | Transfer of (Label.t -> Transfer.t)
+      fun handleStatement (oom, one, buf) st =
+         case st of
+              Statement.Bind {exp, ty, var} =>
+              let
+                 val (exp, check) =
+                  case exp of
+                       Exp.Inject {sum, variant} =>
+                          case tyconRepr sum of
+                               Finite => (Exp.Var variant, NONE)
+                             | Nat => (Exp.Var variant, NONE)
+                             | _ => (exp, NONE)
+                     | Exp.Object {con, args} =>
+                          case conVal con of
+                               Word i => (* TODO: make WordX instead of word, can be different sizes *)
+                                 ((Exp.Const o Const.word o WordX.fromIntInf)
+                                 (Integer.toIntInf (Word.toInt i), WordSize.word32),
+                                  NONE)
+                              (*
+                             | Successor =>
+                                  if 1 = Vector.length args
+                                    then let
+                                       val v = (Vector.new2 one (Vector.sub (args, 0)))
+                                    in
+                                       (Exp.PrimApp
+                                       {args=v,
+                                        prim=Prim.Word_add WordSize.word64},
+                                        SOME v)
+                                    end
+                                    else MLton.bug "DatatypesToWords.transform: Incorrect arguments for successor constructor"
+                               *)
+
+                  val _ =
+                     Buffer.push (buf, Statement (Statement.Bind {exp=handleExp exp, ty=handleTy ty, var=var}))
+                  val _ =
+                     case check of
+                          SOME v' =>
+                             let
+                                val checkVar = Var.newString "succCheck"
+                              in
+                              (Buffer.push (buf, Statement
+                                 (Statement.Bind
+                                    {exp={args=v, prim=Prim.Word_addCheckP WordSize.word64},
+                                     ty=Type.word32,
+                                     var=checkVar})));
+                              (Buffer.push (buf, Transfer (fn l =>
+                                 Transfer.Case {cases = Cases.Word
+                                    (WordSize.word32, Vector.new1 (WordX.zero WordSize.64, oom)),
+                                     default = SOME l,
+                                     test = checkVar})))
+                             end
+                        | NONE =>
+                             ()
+              in
+                 ()
+              end
+            | _ => Buffer.push (buf, Statement st)
+
+      fun handleBlock (Block.T {args, label, statements, transfer}) =
+         let
+            val args = Vector.map (args, fn (v, ty) => (v, handleType ty))
+            val buffer = Buffer.new {dummy=Transfer Transfer.Bug}
+            val _ = Vector.foreach (statements,
+               handleStatement)
+         in
+            createBlocks buffer
+         end
+
+      fun handleFun {args, blocks, mayInline, name, raises, returns, start} =
+         let
+            val blocks = Buffer.new {dummy=
+               Block.T {args=Vector.new0 (), label=Label.bogus (),
+                        statements=Vector.new0 (), transfer=Transfer.Bug}}
+            val _ = 
+            val blocks = Buffer.toVector blocks
          {args=args, blocks=blocks, mayInline=mayInline, name=name,
           raises=raises, returns=returns, start=start}
-   end
 
-fun transform (Program.T {datatypes, functions, globals, main}) =
+   in
+   end
 
 
 
