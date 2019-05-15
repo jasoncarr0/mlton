@@ -23,23 +23,25 @@ datatype ConVal =
  | Word of WordX.t
  | Successor of WordSize.t
 
-fun transform (Program.T {datatypes, main, functions, ...}) =
+fun transform (Program.T {datatypes, functions, globals, main}) =
    let
-      val {get=tyconRepr, set=setTyconRepr} =
+      val {get=tyconRepr, set=setTyconRepr, ...} =
          Property.getSetOnce (Tycon.plist, Property.initConst Unchanged)
 
-      val {get=conVal, set=setConVal} =
+      val {get=conVal, set=setConVal, ...} =
          Property.getSet (Con.plist, Property.initConst Constructor)
 
-      val _ = Vector.foreach (datatypes, fn Datatype.T {cons, tycon} =>
+
+      val natSize = WordSize.objptr ()
+      val datatypes = Vector.keepAll (datatypes, fn Datatype.T {cons, tycon} =>
          if Vector.forall (cons, fn {args, ...} => Prod.isEmpty args)
-            andalso Vector.length cons < 2^32
             then (setTyconRepr (tycon, Finite);
                (* Later: set based on frequent occurence
                 * to make good use of zero/nonzero *)
-                  Vector.foreachi (cons, fn ({con, ...}, i) =>
-                  setConVal (con,
-                     WordX.fromIntInf (WordSize.word32, Int.toIntInf i)))
+                  (Vector.foreachi (cons, fn (i, {con, ...}) =>
+                  setConVal (con, (Word o WordX.fromIntInf)
+                     (Int.toIntInf i, WordSize.word32))));
+                  false)
          else if Vector.length cons = 2
             andalso Vector.exists (cons, fn {args, ...} => Prod.isEmpty args)
             andalso Vector.exists (cons, fn {args, ...} =>
@@ -47,65 +49,87 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
                   andalso
                      case Prod.sub (args, 0) of
                         {elt, isMutable=true} =>
-                           Type.equals (elt, Type.Datatype tycon)
+                           Type.equals (elt, Type.datatypee tycon)
                       | _ => false)
             then
                (setTyconRepr (tycon, Nat);
                 Vector.foreach (cons, fn {con, args} =>
                   setConVal (con, if Prod.isEmpty args
-                     then Word (WordX.zero WordSize.objptr)
-                     else Successor WordSize.obpjtr)))
-         else ())
+                     then Word (WordX.zero natSize)
+                     else Successor natSize)); false)
+         else true)
 
-      datatype Line =
+      val (globals, one) =
+         case Vector.peekMap (globals,
+            fn Statement.Bind {exp=Exp.Const (Const.Word wx), var=SOME var, ...} =>
+               if WordSize.equals (WordX.size wx, natSize)
+                  andalso WordX.isOne wx
+               then SOME var
+               else NONE
+             | _ => NONE) of
+            (SOME v) => (globals, v)
+            (* Should absolutely not happen but just in case *)
+          | NONE =>
+            let
+               val v = Var.newNoname ()
+               val ty = Type.word natSize
+               val exp = Exp.Const (Const.Word (WordX.one natSize))
+               val st = Statement.Bind {var=SOME v, ty=ty, exp=exp}
+            in
+               (Vector.concat [globals, Vector.new1 st], v)
+            end
+
+      (* some changes require interrupting simple control flow,
+       * so we'll need to handle intermediate transfers *)
+      datatype Instruction =
            Statement of Statement.t
          | Transfer of (Label.t -> Transfer.t)
 
-
       fun handleTransfer blocks t =
          case t of
-              Transfer.Case {cases=Cases.Con cases, default, var} =>
-                 if not Vector.isEmpty cases
+              Transfer.Case {cases=Cases.Con cases, default, test} =>
+                 if not (Vector.isEmpty cases)
                      (* Assume still well-typed *)
                   then
                      case conVal (#1 (Vector.first cases)) of
-                         Word _ =>
+                         Word wx =>
                            let
+                              val size = WordX.size wx
                               val successor = ref NONE
-                              val cases = Vector.keepAllMap (cases,
+                              val cases = Cases.Word (size,
+                                 Vector.keepAllMap (cases,
                                  fn (c, l) =>
                                     case conVal c of
                                          Word i => SOME (i, l)
-                                         Successor => (successor := SOME l; NONE)
-                                       | _ => Error.bug "DatatypesToWords.transform: Inconsistent cases")
-                              val size = WordX.size (Vector.first cases)
+                                       | Successor _ => (successor := SOME l; NONE)
+                                       | _ => Error.bug "DatatypesToWords.transform: Inconsistent cases"))
                               (* for successor, also need to decrement by one *)
                               val default =
-                                 if isSome successor
-                                 then
-                                    let
-                                       val decVar = Var.new test
-                                       val decLabel = Label.newNoname ()
-                                       val decBlock = Block.T
-                                          {args=Vector.new0 (),
-                                           label=label,
-                                           statements=Vector.new1
-                                             (Statement.Bind
-                                                {exp=Exp.PrimApp
-                                                   {args=Vector.new2 test one,
-                                                    prim=Prim.Word_sub size},
-                                                 ty=Type.word ws,
-                                                 var=decVar}),
-                                           transfer=Transfer.Goto
-                                             {args=Vector.new1 decVar,
-                                              dst=l}}
-                                       val _ = Buffer.add (blocks, decBlock)
-                                    in
-                                       SOME label
-                                    end
-                                 else default
+                                 case !successor of
+                                    SOME l =>
+                                       let
+                                          val decVar = Var.new test
+                                          val decLabel = Label.newNoname ()
+                                          val decBlock = Block.T
+                                             {args=Vector.new0 (),
+                                              label=decLabel,
+                                              statements=Vector.new1
+                                                (Statement.Bind
+                                                   {exp=Exp.PrimApp
+                                                      {args=Vector.new2 (test, one),
+                                                       prim=Prim.wordSub size},
+                                                    ty=Type.word size,
+                                                    var=SOME decVar}),
+                                              transfer=Transfer.Goto
+                                                {args=Vector.new1 decVar,
+                                                 dst=l}}
+                                          val _ = Buffer.add (blocks, decBlock)
+                                       in
+                                          SOME decLabel
+                                       end
+                                  | NONE => default
                            in
-                              Transfer.Case {cases=cases, default=default, var=var}
+                              Transfer.Case {cases=cases, default=default, test=test}
                            end
                        | _ => t
                   else t
@@ -114,33 +138,34 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
 
 
 
-      fun handleStatement (oom, one, instrs) st =
+      fun handleStatement (oom, instrs) st =
          case st of
               Statement.Bind {exp, ty, var} =>
               let
                  val (exp, check) =
                   case exp of
                        Exp.Inject {sum, variant} =>
-                          case tyconRepr sum of
+                          (case tyconRepr sum of
                                Finite => (Exp.Var variant, NONE)
                              | Nat => (Exp.Var variant, NONE)
-                             | _ => (exp, NONE)
-                     | Exp.Object {con, args} =>
+                             | _ => (exp, NONE))
+                     | Exp.Object {con=SOME con, args} =>
                           case conVal con of
                                Word i =>
                                  (Exp.Const (Const.word i), NONE)
-                             | Successor =>
+                             | Successor sz =>
                                   if 1 = Vector.length args
                                     then let
-                                       val v = (Vector.new2 one (Vector.sub (args, 0)))
+                                       val v = (Vector.new2 (one, (Vector.sub (args, 0))))
                                     in
                                        (Exp.PrimApp
                                        {args=v,
-                                        prim=Prim.Word_add WordSize.word64},
+                                        prim=Prim.wordAdd sz},
                                         SOME v)
                                     end
                                     else Error.bug
                                     "DatatypesToWords.transform: Incorrect arguments for successor constructor"
+                     | _ => (exp, NONE)
                   val _ =
                      List.push (instrs, Statement (Statement.Bind {exp=handleExp exp, ty=handleTy ty, var=var}))
                   val _ =
@@ -156,7 +181,7 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
                                      var=checkVar})));
                               (List.push (instrs, Transfer (fn l =>
                                  Transfer.Case {cases = Cases.Word
-                                    (WordSize.word32, Vector.new1 (WordX.zero WordSize.64, oom)),
+                                    (WordSize.word32, Vector.new1 (WordX.zero natSize, oom)),
                                      default = SOME l,
                                      test = checkVar})))
                              end
@@ -175,7 +200,7 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
       fun createBlocks blocks (instrs, acc, args, label) =
          case instrs of
               Statement st :: instrs =>
-                  createBlocks (instrs, blocks, st :: acc, label) =>
+                  createBlocks (instrs, blocks, st :: acc, label)
             | Transfer ft :: instrs =>
                   let
                      val l' = Label.new label
@@ -191,23 +216,23 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
                   end
             | [] => ()
 
-      fun handleBlock (oom, one, blocks) (Block.T {args, label, statements, transfer}) =
+      fun handleBlock (oom, blocks) (Block.T {args, label, statements, transfer}) =
          let
             val args = Vector.map (args, fn (v, ty) => (v, handleType ty))
             val instrs = ref []
-            val _ = Vector.foreach (statements, handleStatement (oom, one, instrs))
+            val _ = Vector.foreach (statements, handleStatement (oom, instrs))
             val _ = List.push (instrs, Transfer (fn _ => handleTransfer blocks transfer))
          in
             createBlocks blocks (List.reverse !instrs, [], args, label)
          end
 
-      fun handleFun one {args, blocks, mayInline, name, raises, returns, start} =
+      fun handleFun {args, blocks, mayInline, name, raises, returns, start} =
          let
             val buf = Buffer.new {dummy=
                Block.T {args=Vector.new0 (), label=Label.bogus (),
                         statements=Vector.new0 (), transfer=Transfer.Bug}}
             val oom = Label.newString "Nat_OutOfMemory"
-            val _ = Vector.foreach (blocks, handleBlock (oom, one, buf)
+            val _ = Vector.foreach (blocks, handleBlock (oom, buf))
 
             val oomBlock = Block.T {args=Vector.new0 (), label=oom,
                                     statements=Vector.new0 (),
@@ -222,7 +247,8 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
          end
 
    in
+      Program.T {datatypes=datatypes, globals=globals, functions=functions, main=main}
    end
 
 
-
+end

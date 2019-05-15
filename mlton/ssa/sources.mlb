@@ -59,6 +59,7 @@ local
    combine-conversions.fun
    constant-propagation.fun
    contify.fun
+   datatypes-to-words.fun
    deep-flatten.fun
    duplicate-globals.fun
    flatten.fun
