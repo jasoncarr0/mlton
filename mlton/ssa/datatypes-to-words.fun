@@ -20,8 +20,8 @@ datatype Repr =
 datatype ConVal =
    Constructor
  | Unset
- | Word of word
- | Successor
+ | Word of WordX.t
+ | Successor of WordSize.t
 
 fun transform (Program.T {datatypes, main, functions, ...}) =
    let
@@ -37,7 +37,9 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
             then (setTyconRepr (tycon, Finite);
                (* Later: set based on frequent occurence
                 * to make good use of zero/nonzero *)
-                  Vector.foreachi (cons, fn ({con, ...}, i) => setConVal (con, Word i)))
+                  Vector.foreachi (cons, fn ({con, ...}, i) =>
+                  setConVal (con,
+                     WordX.fromIntInf (WordSize.word32, Int.toIntInf i)))
          else if Vector.length cons = 2
             andalso Vector.exists (cons, fn {args, ...} => Prod.isEmpty args)
             andalso Vector.exists (cons, fn {args, ...} =>
@@ -50,21 +52,69 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
             then
                (setTyconRepr (tycon, Nat);
                 Vector.foreach (cons, fn {con, args} =>
-                  setConVal (con, if Prod.isEmpty args then Word 0 else Successor)))
-
+                  setConVal (con, if Prod.isEmpty args
+                     then Word (WordX.zero WordSize.objptr)
+                     else Successor WordSize.obpjtr)))
          else ())
-
-
-
-      (* for successor, we'll need to check overflow, so it can't be an expression,
-       * at this level *)
-      fun handleExp (oom, one) exp =
-         case exp of
 
       datatype Line =
            Statement of Statement.t
          | Transfer of (Label.t -> Transfer.t)
-      fun handleStatement (oom, one, buf) st =
+
+
+      fun handleTransfer blocks t =
+         case t of
+              Transfer.Case {cases=Cases.Con cases, default, var} =>
+                 if not Vector.isEmpty cases
+                     (* Assume still well-typed *)
+                  then
+                     case conVal (#1 (Vector.first cases)) of
+                         Word _ =>
+                           let
+                              val successor = ref NONE
+                              val cases = Vector.keepAllMap (cases,
+                                 fn (c, l) =>
+                                    case conVal c of
+                                         Word i => SOME (i, l)
+                                         Successor => (successor := SOME l; NONE)
+                                       | _ => Error.bug "DatatypesToWords.transform: Inconsistent cases")
+                              val size = WordX.size (Vector.first cases)
+                              (* for successor, also need to decrement by one *)
+                              val default =
+                                 if isSome successor
+                                 then
+                                    let
+                                       val decVar = Var.new test
+                                       val decLabel = Label.newNoname ()
+                                       val decBlock = Block.T
+                                          {args=Vector.new0 (),
+                                           label=label,
+                                           statements=Vector.new1
+                                             (Statement.Bind
+                                                {exp=Exp.PrimApp
+                                                   {args=Vector.new2 test one,
+                                                    prim=Prim.Word_sub size},
+                                                 ty=Type.word ws,
+                                                 var=decVar}),
+                                           transfer=Transfer.Goto
+                                             {args=Vector.new1 decVar,
+                                              dst=l}}
+                                       val _ = Buffer.add (blocks, decBlock)
+                                    in
+                                       SOME label
+                                    end
+                                 else default
+                           in
+                              Transfer.Case {cases=cases, default=default, var=var}
+                           end
+                       | _ => t
+                  else t
+            | _ => t
+
+
+
+
+      fun handleStatement (oom, one, instrs) st =
          case st of
               Statement.Bind {exp, ty, var} =>
               let
@@ -77,11 +127,8 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
                              | _ => (exp, NONE)
                      | Exp.Object {con, args} =>
                           case conVal con of
-                               Word i => (* TODO: make WordX instead of word, can be different sizes *)
-                                 ((Exp.Const o Const.word o WordX.fromIntInf)
-                                 (Integer.toIntInf (Word.toInt i), WordSize.word32),
-                                  NONE)
-                              (*
+                               Word i =>
+                                 (Exp.Const (Const.word i), NONE)
                              | Successor =>
                                   if 1 = Vector.length args
                                     then let
@@ -92,23 +139,22 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
                                         prim=Prim.Word_add WordSize.word64},
                                         SOME v)
                                     end
-                                    else MLton.bug "DatatypesToWords.transform: Incorrect arguments for successor constructor"
-                               *)
-
+                                    else Error.bug
+                                    "DatatypesToWords.transform: Incorrect arguments for successor constructor"
                   val _ =
-                     Buffer.push (buf, Statement (Statement.Bind {exp=handleExp exp, ty=handleTy ty, var=var}))
+                     List.push (instrs, Statement (Statement.Bind {exp=handleExp exp, ty=handleTy ty, var=var}))
                   val _ =
                      case check of
                           SOME v' =>
                              let
                                 val checkVar = Var.newString "succCheck"
                               in
-                              (Buffer.push (buf, Statement
+                              (List.push (instrs, Statement
                                  (Statement.Bind
                                     {exp={args=v, prim=Prim.Word_addCheckP WordSize.word64},
                                      ty=Type.word32,
                                      var=checkVar})));
-                              (Buffer.push (buf, Transfer (fn l =>
+                              (List.push (instrs, Transfer (fn l =>
                                  Transfer.Case {cases = Cases.Word
                                     (WordSize.word32, Vector.new1 (WordX.zero WordSize.64, oom)),
                                      default = SOME l,
@@ -119,27 +165,61 @@ fun transform (Program.T {datatypes, main, functions, ...}) =
               in
                  ()
               end
-            | _ => Buffer.push (buf, Statement st)
+            | _ => List.push (instrs, Statement st)
 
-      fun handleBlock (Block.T {args, label, statements, transfer}) =
+      (* given a sequence of statements and transfers,
+       * create new blocks as necessary;
+       * assuming the last transfer does not need a destination
+       * block and conlcudes the sequence
+       * args only affects the first block created *)
+      fun createBlocks blocks (instrs, acc, args, label) =
+         case instrs of
+              Statement st :: instrs =>
+                  createBlocks (instrs, blocks, st :: acc, label) =>
+            | Transfer ft :: instrs =>
+                  let
+                     val l' = Label.new label
+                     val t = ft l'
+                     val block = Block.T
+                        {args=args,
+                         label=label,
+                         statements=acc,
+                         transfer=t}
+                     val _ = Buffer.add (blocks, block)
+                  in
+                     createBlocks blocks (instrs, [], Vector.new0 (), label)
+                  end
+            | [] => ()
+
+      fun handleBlock (oom, one, blocks) (Block.T {args, label, statements, transfer}) =
          let
             val args = Vector.map (args, fn (v, ty) => (v, handleType ty))
-            val buffer = Buffer.new {dummy=Transfer Transfer.Bug}
-            val _ = Vector.foreach (statements,
-               handleStatement)
+            val instrs = ref []
+            val _ = Vector.foreach (statements, handleStatement (oom, one, instrs))
+            val _ = List.push (instrs, Transfer (fn _ => handleTransfer blocks transfer))
          in
-            createBlocks buffer
+            createBlocks blocks (List.reverse !instrs, [], args, label)
          end
 
-      fun handleFun {args, blocks, mayInline, name, raises, returns, start} =
+      fun handleFun one {args, blocks, mayInline, name, raises, returns, start} =
          let
-            val blocks = Buffer.new {dummy=
+            val buf = Buffer.new {dummy=
                Block.T {args=Vector.new0 (), label=Label.bogus (),
                         statements=Vector.new0 (), transfer=Transfer.Bug}}
-            val _ = 
-            val blocks = Buffer.toVector blocks
-         {args=args, blocks=blocks, mayInline=mayInline, name=name,
-          raises=raises, returns=returns, start=start}
+            val oom = Label.newString "Nat_OutOfMemory"
+            val _ = Vector.foreach (blocks, handleBlock (oom, one, buf)
+
+            val oomBlock = Block.T {args=Vector.new0 (), label=oom,
+                                    statements=Vector.new0 (),
+                                    (* TODO *)
+                                    transfer=Transfer.Bug}
+            val _ = Buffer.add (buf, oomBlock)
+            val blocks = Buffer.toVector buf
+         in
+            Function.new
+            {args=args, blocks=blocks, mayInline=mayInline, name=name,
+             raises=raises, returns=returns, start=start}
+         end
 
    in
    end
