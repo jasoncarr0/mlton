@@ -29,7 +29,7 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
          Property.getSetOnce (Tycon.plist, Property.initConst Unchanged)
 
       val {get=conVal, set=setConVal, ...} =
-         Property.getSet (Con.plist, Property.initConst Constructor)
+         Property.getSetOnce (Con.plist, Property.initConst Constructor)
 
 
       val natSize = WordSize.objptr ()
@@ -261,6 +261,54 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
             {args=args, blocks=blocks, mayInline=mayInline, name=name,
              raises=raises, returns=returns, start=start}
          end
+
+      val functions = List.map (functions, handleFun o Function.dest)
+
+      val {get=globalValue,set=setGlobalValue,...} =
+         Property.getSetOnce (Var.plist, Property.initRaise
+            ("globalValue", Var.layout))
+      (* Globals can't use handleStatement since there's no overflow *)
+
+      fun handleSuccessorGlobal (var, args, sz) =
+         if 1 = Vector.length args
+         then
+            let
+               val pred = globalValue (Vector.first args)
+               val w = WordX.add (pred, WordX.one sz)
+               val _ = setGlobalValue (var, w)
+            in
+               Exp.Const (Const.word w)
+            end
+         else
+            Error.bug ("DatatypesToWords.globals: Strange arguments for successor: "
+               ^ (Layout.toString (Var.layout var)))
+
+      val globals = Vector.map (globals,
+         fn Statement.Bind {exp, ty, var=SOME var} =>
+               let
+                  val exp =
+                     case exp of
+                          Exp.Object {con=SOME con, args} =>
+                              (case conVal con of
+                                   Word w =>
+                                    (setGlobalValue (var, w);
+                                     Exp.Const (Const.word w))
+                                   (* guaranteed to exist by scoping *)
+                                 | Successor sz =>
+                                      handleSuccessorGlobal (var, args, sz)
+                                 | _ => exp)
+                        | Exp.Inject {sum, variant} =>
+                              (case tyconRepr sum of
+                                   Finite => Exp.Var variant
+                                 | Nat => Exp.Var variant
+                                 | _ => exp)
+                        | _ => exp
+                  val st = Statement.Bind {exp=exp, ty=handleType ty, var=SOME var}
+               in
+                  st
+               end
+          | st => st)
+
 
    in
       Program.T {datatypes=datatypes, globals=globals, functions=functions, main=main}
