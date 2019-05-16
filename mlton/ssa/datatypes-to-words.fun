@@ -23,7 +23,7 @@ datatype ConVal =
  | Word of WordX.t
  | Successor of WordSize.t
 
-fun transform (Program.T {datatypes, functions, globals, main}) =
+fun transform2 (Program.T {datatypes, functions, globals, main}) =
    let
       val {get=tyconRepr, set=setTyconRepr, ...} =
          Property.getSetOnce (Tycon.plist, Property.initConst Unchanged)
@@ -33,6 +33,12 @@ fun transform (Program.T {datatypes, functions, globals, main}) =
 
 
       val natSize = WordSize.objptr ()
+      val natType = Type.word natSize
+      (* One consideration here might be bool,
+       * but we'd have to be a bit more careful about size.
+       * Bool is made into a word32 on many platforms for C compatibility *)
+      val finiteSize = WordSize.word32
+      val finiteType = Type.word finiteSize
       val datatypes = Vector.keepAll (datatypes, fn Datatype.T {cons, tycon} =>
          if Vector.forall (cons, fn {args, ...} => Prod.isEmpty args)
             then (setTyconRepr (tycon, Finite);
@@ -78,6 +84,15 @@ fun transform (Program.T {datatypes, functions, globals, main}) =
             in
                (Vector.concat [globals, Vector.new1 st], v)
             end
+
+      fun handleType (ty: Type.t): Type.t =
+         case Type.dest ty of
+              Type.Datatype tycon =>
+                  (case tyconRepr tycon of
+                        Nat => natType
+                      | Finite => finiteType
+                      | Unchanged => ty)
+            | _ => ty
 
       (* some changes require interrupting simple control flow,
        * so we'll need to handle intermediate transfers *)
@@ -167,7 +182,7 @@ fun transform (Program.T {datatypes, functions, globals, main}) =
                                     "DatatypesToWords.transform: Incorrect arguments for successor constructor"
                      | _ => (exp, NONE)
                   val _ =
-                     List.push (instrs, Statement (Statement.Bind {exp=handleExp exp, ty=handleTy ty, var=var}))
+                     List.push (instrs, Statement (Statement.Bind {exp=exp, ty=handleType ty, var=var}))
                   val _ =
                      case check of
                           SOME v' =>
@@ -176,14 +191,15 @@ fun transform (Program.T {datatypes, functions, globals, main}) =
                               in
                               (List.push (instrs, Statement
                                  (Statement.Bind
-                                    {exp={args=v, prim=Prim.Word_addCheckP WordSize.word64},
-                                     ty=Type.word32,
-                                     var=checkVar})));
+                                    {exp=Exp.PrimApp
+                                       {args=v', prim=Prim.wordAddCheckP (WordSize.word64, {signed=false})},
+                                     ty=natType,
+                                     var=SOME checkVar})));
                               (List.push (instrs, Transfer (fn l =>
-                                 Transfer.Case {cases = Cases.Word
-                                    (WordSize.word32, Vector.new1 (WordX.zero natSize, oom)),
-                                     default = SOME l,
-                                     test = checkVar})))
+                                 Transfer.Case {cases=Cases.Word
+                                    (natSize, Vector.new1 (WordX.zero natSize, oom)),
+                                     default=SOME l,
+                                     test=checkVar})))
                              end
                         | NONE =>
                              ()
@@ -200,7 +216,7 @@ fun transform (Program.T {datatypes, functions, globals, main}) =
       fun createBlocks blocks (instrs, acc, args, label) =
          case instrs of
               Statement st :: instrs =>
-                  createBlocks (instrs, blocks, st :: acc, label)
+                  createBlocks blocks (instrs, st :: acc, args, label)
             | Transfer ft :: instrs =>
                   let
                      val l' = Label.new label
@@ -208,7 +224,7 @@ fun transform (Program.T {datatypes, functions, globals, main}) =
                      val block = Block.T
                         {args=args,
                          label=label,
-                         statements=acc,
+                         statements=Vector.fromList acc,
                          transfer=t}
                      val _ = Buffer.add (blocks, block)
                   in
@@ -223,13 +239,13 @@ fun transform (Program.T {datatypes, functions, globals, main}) =
             val _ = Vector.foreach (statements, handleStatement (oom, instrs))
             val _ = List.push (instrs, Transfer (fn _ => handleTransfer blocks transfer))
          in
-            createBlocks blocks (List.reverse !instrs, [], args, label)
+            createBlocks blocks (List.rev (!instrs), [], args, label)
          end
 
       fun handleFun {args, blocks, mayInline, name, raises, returns, start} =
          let
             val buf = Buffer.new {dummy=
-               Block.T {args=Vector.new0 (), label=Label.bogus (),
+               Block.T {args=Vector.new0 (), label=Label.bogus,
                         statements=Vector.new0 (), transfer=Transfer.Bug}}
             val oom = Label.newString "Nat_OutOfMemory"
             val _ = Vector.foreach (blocks, handleBlock (oom, buf))
