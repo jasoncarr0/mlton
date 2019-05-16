@@ -40,6 +40,10 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
       val finiteType = Type.word finiteSize
       val datatypes = Vector.keepAll (datatypes, fn Datatype.T {cons, tycon} =>
          if Vector.forall (cons, fn {args, ...} => Prod.isEmpty args)
+            (* we can't handle bool, it needs to stay around
+             * for later, since it has fixed 0-1 semantics
+             * for C code *)
+            andalso not (Tycon.equals (tycon, Tycon.bool))
             then (setTyconRepr (tycon, Finite);
                (* Later: set based on frequent occurence
                 * to make good use of zero/nonzero *)
@@ -78,6 +82,9 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
                     | _ => Type.object
                              {args=Prod.map (args, handleType),
                               con=ObjectCon.Con con})
+            | Type.Object {args, con} =>
+                 Type.object {args=Prod.map (args, handleType),
+                              con=con}
             | Type.Weak ty => Type.weak (handleType ty)
             | _ => ty
 
@@ -119,7 +126,7 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
            Statement of Statement.t
          | Transfer of (Label.t -> Transfer.t)
 
-      fun handleTransfer blocks t =
+      fun handleTransfer (blocks, bug) t =
          case t of
               Transfer.Case {cases=Cases.Con cases, default, test} =>
                  if not (Vector.isEmpty cases)
@@ -161,7 +168,10 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
                                        in
                                           SOME decLabel
                                        end
-                                  | NONE => default
+                                  | NONE =>
+                                       case default of
+                                            SOME l => SOME l
+                                          | NONE => SOME bug
                            in
                               Transfer.Case {cases=cases, default=default, test=test}
                            end
@@ -184,7 +194,7 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
                              | Nat => (Exp.Var variant, NONE)
                              | _ => (exp, NONE))
                      | Exp.Object {con=SOME con, args} =>
-                          case conVal con of
+                          (case conVal con of
                                Word i =>
                                  (Exp.Const (Const.word i), NONE)
                              | Successor sz =>
@@ -199,6 +209,7 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
                                     end
                                     else Error.bug
                                     "DatatypesToWords.transform: Incorrect arguments for successor constructor"
+                             | _ => (exp, NONE))
                      | _ => (exp, NONE)
                   val _ =
                      List.push (instrs, Statement (Statement.Bind {exp=exp, ty=handleType ty, var=var}))
@@ -243,7 +254,7 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
                      val block = Block.T
                         {args=args,
                          label=label,
-                         statements=Vector.fromList acc,
+                         statements=Vector.fromListRev acc,
                          transfer=t}
                      val _ = Buffer.add (blocks, block)
                   in
@@ -251,29 +262,38 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
                   end
             | [] => ()
 
-      fun handleBlock (oom, blocks) (Block.T {args, label, statements, transfer}) =
+      fun handleBlock (blocks, oom, bug) (Block.T {args, label, statements, transfer}) =
          let
             val args = Vector.map (args, fn (v, ty) => (v, handleType ty))
             val instrs = ref []
             val _ = Vector.foreach (statements, handleStatement (oom, instrs))
-            val _ = List.push (instrs, Transfer (fn _ => handleTransfer blocks transfer))
+            val _ = List.push (instrs, Transfer (fn _ => handleTransfer (blocks, bug) transfer))
          in
             createBlocks blocks (List.rev (!instrs), [], args, label)
          end
 
       fun handleFun {args, blocks, mayInline, name, raises, returns, start} =
          let
+            val args = Vector.map (args, fn (v, ty) => (v, handleType ty))
+            val raises = Option.map (raises, fn r => Vector.map (r, handleType))
+            val returns = Option.map (returns, fn r => Vector.map (r, handleType))
+
             val buf = Buffer.new {dummy=
                Block.T {args=Vector.new0 (), label=Label.bogus,
                         statements=Vector.new0 (), transfer=Transfer.Bug}}
             val oom = Label.newString "Nat_OutOfMemory"
-            val _ = Vector.foreach (blocks, handleBlock (oom, buf))
+            val bug = Label.newString "Impossible_enum"
+            val _ = Vector.foreach (blocks, handleBlock (buf, oom, bug))
 
             val oomBlock = Block.T {args=Vector.new0 (), label=oom,
                                     statements=Vector.new0 (),
                                     (* TODO *)
                                     transfer=Transfer.Bug}
+            val bugBlock = Block.T {args=Vector.new0 (), label=bug,
+                                    statements=Vector.new0 (),
+                                    transfer=Transfer.Bug}
             val _ = Buffer.add (buf, oomBlock)
+            val _ = Buffer.add (buf, bugBlock)
             val blocks = Buffer.toVector buf
          in
             Function.new
@@ -301,6 +321,13 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
          else
             Error.bug ("DatatypesToWords.globals: Strange arguments for successor: "
                ^ (Layout.toString (Var.layout var)))
+      fun replaceWith (src, target) =
+         let
+            val w = globalValue target
+            val _ = setGlobalValue (src, w)
+         in
+            Exp.Const (Const.word w)
+         end
 
       val globals = Vector.map (globals,
          fn Statement.Bind {exp, ty, var=SOME var} =>
@@ -318,8 +345,8 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
                                  | _ => exp)
                         | Exp.Inject {sum, variant} =>
                               (case tyconRepr sum of
-                                   Finite => Exp.Var variant
-                                 | Nat => Exp.Var variant
+                                   Finite => replaceWith (var, variant)
+                                 | Nat => replaceWith (var, variant)
                                  | _ => exp)
                         | _ => exp
                   val st = Statement.Bind {exp=exp, ty=handleType ty, var=SOME var}

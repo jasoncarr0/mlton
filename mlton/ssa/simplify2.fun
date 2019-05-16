@@ -12,6 +12,7 @@ struct
 
 open S
 
+structure DatatypesToWords = DatatypesToWords (S)
 structure DeepFlatten = DeepFlatten (S)
 structure Profile2 = Profile2 (S)
 structure RefFlatten = RefFlatten (S)
@@ -25,6 +26,7 @@ type pass = {name: string,
 val ssa2PassesDefault = 
    {name = "deepFlatten", doit = DeepFlatten.transform2, execute = true} ::
    {name = "refFlatten", doit = RefFlatten.transform2, execute = true} ::
+   {name = "datatypesToWords", doit = DatatypesToWords.transform2, execute = true} ::
    {name = "removeUnused5", doit = RemoveUnused2.transform2, execute = true} ::
    {name = "zone", doit = Zone.transform2, execute = true} ::
    nil
