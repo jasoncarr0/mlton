@@ -19,7 +19,6 @@ datatype Repr =
 
 datatype ConVal =
    Constructor
- | Unset
  | Word of WordX.t
  | Successor of WordSize.t
 
@@ -65,6 +64,34 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
                      else Successor natSize)); false)
          else true)
 
+      fun handleType (ty: Type.t): Type.t =
+         case Type.dest ty of
+              Type.Datatype tycon =>
+                  (case tyconRepr tycon of
+                        Nat => natType
+                      | Finite => finiteType
+                      | Unchanged => ty)
+            | Type.Object {args, con=ObjectCon.Con con} =>
+                 (case conVal con of
+                      Word wx => Type.word (WordX.size wx)
+                    | Successor ws => Type.word ws
+                    | _ => Type.object
+                             {args=Prod.map (args, handleType),
+                              con=ObjectCon.Con con})
+            | Type.Weak ty => Type.weak (handleType ty)
+            | _ => ty
+
+      (* Now fixup datatypes to use the new types *)
+      val datatypes =
+         Vector.map (datatypes,
+            fn Datatype.T {cons, tycon} =>
+               Datatype.T
+                  {cons=Vector.map (cons,
+                     fn {args, con} =>
+                        {args=Prod.map (args, handleType),
+                         con=con}),
+                   tycon=tycon})
+
       val (globals, one) =
          case Vector.peekMap (globals,
             fn Statement.Bind {exp=Exp.Const (Const.Word wx), var=SOME var, ...} =>
@@ -85,14 +112,6 @@ fun transform2 (Program.T {datatypes, functions, globals, main}) =
                (Vector.concat [globals, Vector.new1 st], v)
             end
 
-      fun handleType (ty: Type.t): Type.t =
-         case Type.dest ty of
-              Type.Datatype tycon =>
-                  (case tyconRepr tycon of
-                        Nat => natType
-                      | Finite => finiteType
-                      | Unchanged => ty)
-            | _ => ty
 
       (* some changes require interrupting simple control flow,
        * so we'll need to handle intermediate transfers *)
