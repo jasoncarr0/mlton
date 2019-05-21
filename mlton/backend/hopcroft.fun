@@ -5,24 +5,97 @@
  *)
 
 (* Hopcroft's DFA Minimization algorithm,
- * Used here primarily for deduplication *)
+ * Used here primarily for deduplication.
+ *
+ * For simplicity, we use a set datastructure
+ * rather than a proper mutable partition refinement. *)
 signature HOPCROFT_STRUCTS = sig
    structure Set: SET
-   structure Alphabet: sig
-      type t
-      val equals: t * t -> bool
-   end
 end
 signature HOPCROFT = sig
-   open HOPCROFT_STRUCTS
+   include HOPCROFT_STRUCTS
+
    type u = Set.Element.t
-   type s = Alphabet.t
+   type t
 
    val run: {
-      initialPartition: u list list,
-      transitionsFrom: u -> s list,
-      transition: u * u * s -> bool
+      (* must have at least two components for any work to be
+       * performed. One component will return immediately *)
+      initialPartition: Set.t list,
+      (* Produce a list of state sets which transition to this
+       * set of states on the same character *)
+      transitionsTo: Set.t -> Set.t list,
+      info: (unit -> t) -> u -> t ref
    }
-   -> u list list
+   -> Set.t list
 end
 
+functor Hopcroft (S: HOPCROFT_STRUCTS) :> HOPCROFT =
+struct
+
+open S
+structure RA = ResizableArray
+   
+type u = Set.Element.t
+type t = int (* index of set *)
+
+fun run {initialPartition, transitionsTo, info} =
+   let
+      val worklist = RA.empty ()
+      val sets = RA.empty ()
+      val _ =
+         case initialPartition of
+              x :: xs =>
+                  (RA.addToEnd (sets, x) ;
+                   List.foreachi (xs,
+                     fn (i, s) =>
+                        (RA.addToEnd (sets, s) ;
+                         RA.addToEnd (worklist, (i + 1, s)))))
+            | _ => raise Fail "Hopcroft.run: initial partition must contain at least one set"
+
+      val infoFor = info (fn () => 0)
+      fun getInfo v = !(infoFor v)
+      fun setInfo (v, i) = infoFor v := i
+
+      fun splitBy x =
+         let
+            (* this is also O(n^2) rather than O(nlogn) but it shouldn't matter too much *)
+            val splits = List.removeDuplicates (List.map (Set.toList x, getInfo), op =)
+            val _ = List.foreach (splits,
+               fn i =>
+                  let
+                     val s = RA.sub (sets, i)
+                     val sx = Set.intersect (s, x)
+                     val snx = Set.subset (s, fn e => not (Set.contains (x, e)))
+                     val inx = RA.length sets
+                     val _ = RA.addToEnd (sets, snx)
+                     val _ = RA.update (sets, i, sx)
+                     val _ = Set.foreach (snx,
+                        fn y => setInfo (y, inx))
+                     val _ =
+                        case RA.index (worklist, fn (j, _) => i = j) of
+                             SOME i =>
+                                (RA.update (worklist, i, (i, sx)) ;
+                                 RA.addToEnd (worklist, (inx, snx)))
+                           | NONE =>
+                              if Set.size sx < Set.size snx
+                                 then RA.addToEnd (worklist, (i, sx))
+                              else RA.addToEnd (worklist, (inx, snx))
+                  in
+                     ()
+                  end)
+         in
+            ()
+         end
+
+      fun process (_, w) =
+         List.foreach (transitionsTo w, splitBy)
+
+      val _ =
+         while 0 < RA.length worklist do
+            (process (RA.deleteLast worklist))
+   in
+      RA.toList sets
+   end
+
+end

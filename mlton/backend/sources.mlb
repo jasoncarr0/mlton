@@ -42,6 +42,7 @@ local
    live.fun
    allocate-registers.sig
    allocate-registers.fun
+   hopcroft.fun
    equivalence-graph.sig
    equivalence-graph.fun
    chunkify.sig
