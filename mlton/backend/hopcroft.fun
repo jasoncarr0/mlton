@@ -23,7 +23,9 @@ signature HOPCROFT = sig
        * performed. One component will return immediately *)
       initialPartition: Set.t list,
       (* Produce a list of state sets which transition to this
-       * set of states on the same character *)
+       * set of states on the same character.
+       * Empty sets are cheap to deal with, so this can just
+       * be a proxy for the list of characters *)
       transitionsTo: Set.t -> Set.t list,
       info: (unit -> t) -> u -> t ref
    }
@@ -67,20 +69,24 @@ fun run {initialPartition, transitionsTo, info} =
                      val s = RA.sub (sets, i)
                      val sx = Set.intersect (s, x)
                      val snx = Set.subset (s, fn e => not (Set.contains (x, e)))
+
                      val inx = RA.length sets
-                     val _ = RA.addToEnd (sets, snx)
-                     val _ = RA.update (sets, i, sx)
-                     val _ = Set.foreach (snx,
-                        fn y => setInfo (y, inx))
                      val _ =
-                        case RA.index (worklist, fn (j, _) => i = j) of
-                             SOME i =>
-                                (RA.update (worklist, i, (i, sx)) ;
-                                 RA.addToEnd (worklist, (inx, snx)))
-                           | NONE =>
-                              if Set.size sx < Set.size snx
-                                 then RA.addToEnd (worklist, (i, sx))
-                              else RA.addToEnd (worklist, (inx, snx))
+                        if Set.isEmpty sx orelse Set.isEmpty snx
+                        then ()
+                        else
+                           (RA.addToEnd (sets, snx) ;
+                           RA.update (sets, i, sx) ;
+                           Set.foreach (snx,
+                              fn y => setInfo (y, inx)) ;
+                           case RA.index (worklist, fn (j, _) => i = j) of
+                                SOME i =>
+                                   (RA.update (worklist, i, (i, sx)) ;
+                                    RA.addToEnd (worklist, (inx, snx)))
+                              | NONE =>
+                                 if Set.size sx < Set.size snx
+                                    then RA.addToEnd (worklist, (i, sx))
+                                 else RA.addToEnd (worklist, (inx, snx)))
                   in
                      ()
                   end)
