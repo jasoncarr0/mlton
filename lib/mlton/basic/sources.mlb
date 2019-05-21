@@ -104,6 +104,8 @@ in
       array.sig
       array.fun
       array.sml
+      resizable-array.sig
+      resizable-array.fun
       binary-search.sig
       binary-search.sml
       hash.sig
@@ -273,6 +275,7 @@ in
       structure QuickSort
       structure Random
       structure Real
+      structure ResizableArray
       (* structure RealVector *)
       structure Real32
       structure Real64

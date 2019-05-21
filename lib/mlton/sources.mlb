@@ -104,6 +104,7 @@ ann "forceUsed" in
       (* structure RealVector *)
       structure Real32
       structure Real64
+      structure ResizableArray
       structure Ref
       structure Regexp
       structure Relation
