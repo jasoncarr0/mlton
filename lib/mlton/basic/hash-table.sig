@@ -15,6 +15,9 @@ signature HASH_TABLE =
       val lookupOrInsert: ('a, 'b) t * 'a * (unit -> 'b) -> 'b
       val new: {equals: 'a * 'a -> bool,
                 hash: 'a -> word} -> ('a, 'b) t
+      val newOfSize: {equals: 'a * 'a -> bool,
+                      hash: 'a -> word,
+                      size: int} -> ('a, 'b) t
       val peek: ('a, 'b) t * 'a -> 'b option
       val remove: ('a, 'b) t * 'a -> unit
       val removeAll : ('a, 'b) t * ('a * 'b -> bool) -> unit

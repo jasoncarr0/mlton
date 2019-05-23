@@ -15,7 +15,12 @@ datatype ('a, 'b) t = T of {set: {hash: word, key: 'a, value: 'b} Set.t,
                             equals: 'a -> 'a -> bool}
 
 fun ('a, 'b) new {equals, hash}: ('a, 'b) t =
-   T {set = Set.new {hash = #hash},
+   T {set = Set.new {hash= #hash},
+      hash = hash,
+      equals = fn x => fn y => equals (x, y)}
+
+fun ('a, 'b) newOfSize {equals, hash, size}: ('a, 'b) t =
+   T {set = Set.newOfSize {hash= #hash, size=size},
       hash = hash,
       equals = fn x => fn y => equals (x, y)}
 
