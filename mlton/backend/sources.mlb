@@ -38,11 +38,12 @@ local
    implement-profiling.fun
    limit-check.fun
    signal-check.fun
+   hopcroft.fun
+   deduplicate-blocks.fun
    live.sig
    live.fun
    allocate-registers.sig
    allocate-registers.fun
-   hopcroft.fun
    equivalence-graph.sig
    equivalence-graph.fun
    chunkify.sig

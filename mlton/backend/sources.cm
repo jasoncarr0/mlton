@@ -48,6 +48,8 @@ implement-profiling.sig
 implement-profiling.fun
 limit-check.fun
 signal-check.fun
+hopcroft.fun
+deduplicate-blocks.fun
 live.sig
 live.fun
 allocate-registers.sig

@@ -51,6 +51,7 @@ end
 structure AllocateRegisters = AllocateRegisters (structure Machine = Machine
                                                  structure Rssa = Rssa)
 structure Chunkify = Chunkify (Rssa)
+structure DeduplicateBlocks = DeduplicateBlocks (structure Rssa = Rssa)
 structure ImplementHandlers = ImplementHandlers (structure Rssa = Rssa)
 structure ImplementProfiling = ImplementProfiling (structure Machine = Machine
                                                    structure Rssa = Rssa)
@@ -203,6 +204,12 @@ fun toMachine (program: Ssa.Program.t, codegen) =
                pass' ({name = "implementProfiling",
                        doit = ImplementProfiling.doit},
                       fn (p,_) => p, p)
+            val p = maybePass ({name = "deduplicateBlocks",
+                                doit = DeduplicateBlocks.transform,
+                                execute = true}, p)
+            val p = maybePass ({name = "rssaShrink3",
+                                doit = Program.shrink,
+                                execute = true}, p)
             val p = maybePass ({name = "rssaOrderFunctions", 
                                 doit = Program.orderFunctions,
                                 execute = true}, p)
