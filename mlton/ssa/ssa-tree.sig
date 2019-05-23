@@ -42,6 +42,7 @@ signature RETURN =
        | Tail
 
       val compose: t * t -> t
+      val equals: t * t -> bool
       val foldLabel: t * 'a * (Label.t * 'a -> 'a) -> 'a
       val foreachHandler: t * (Label.t -> unit) -> unit
       val foreachLabel: t * (Label.t -> unit) -> unit

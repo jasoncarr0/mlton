@@ -17,6 +17,7 @@ signature SWITCH_STRUCTS =
       structure Use: sig
                         type t
 
+                        val equals: t * t -> bool
                         val layout: t -> Layout.t
                         val ty: t -> Type.t
                      end
@@ -33,6 +34,7 @@ signature SWITCH =
                size: WordSize.t,
                test: Use.t}
 
+      val equals: t * t -> bool
       val foldLabelUse: t * 'a * {label: Label.t * 'a -> 'a,
                                   use: Use.t * 'a -> 'a} -> 'a
       val foreachLabel: t * (Label.t -> unit) -> unit

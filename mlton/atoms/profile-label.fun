@@ -19,6 +19,8 @@ functor ProfileLabel (S: PROFILE_LABEL_STRUCTS): PROFILE_LABEL =
          val plist = make #plist
       end
 
+      fun equals (id, id') = PropertyList.equals (plist id, plist id')
+
       local
          val c = Counter.new 0
       in

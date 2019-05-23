@@ -28,6 +28,8 @@ structure GCField =
        | StackLimit
        | StackTop
 
+      val equals = op =
+
       val atomicStateOffset: Bytes.t ref = ref Bytes.zero
       val cardMapAbsoluteOffset: Bytes.t ref = ref Bytes.zero
       val currentThreadOffset: Bytes.t ref = ref Bytes.zero

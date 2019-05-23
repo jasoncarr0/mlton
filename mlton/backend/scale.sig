@@ -16,6 +16,7 @@ signature SCALE =
 
       datatype t = One | Two | Four | Eight
 
+      val equals: t * t -> bool
       val fromBytes: Bytes.t -> t option
       val layout: t -> Layout.t
       val toInt: t -> int

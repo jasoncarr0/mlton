@@ -36,4 +36,6 @@ val toInt: t -> int =
     | Four => 4
     | Eight => 8
 
+val equals = op =
+
 end

@@ -37,6 +37,19 @@ datatype t =
          size: WordSize.t,
          test: Use.t}
 
+fun equals (T {cases=cases1, default=default1, size=size1, test=test1},
+            T {cases=cases2, default=default2, size=size2, test=test2})
+   =
+   Option.equals (default1, default2, Label.equals) andalso
+   WordSize.equals (size1, size2) andalso
+   Use.equals (test1, test2) andalso
+   Vector.equals (cases1, cases2,
+      fn ((wx1, l1), (wx2, l2)) =>
+         WordX.equals (wx1, wx2) andalso
+         Label.equals (l1, l2))
+
+
+
 fun layout (T {cases, default, test, ...})= 
    let
       open Layout

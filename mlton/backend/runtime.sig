@@ -32,6 +32,7 @@ signature RUNTIME =
              | StackLimit (* Must have StackTop <= StackLimit *)
              | StackTop (* Points at the next available byte on the stack. *)
 
+            val equals: t * t -> bool
             val layout: t -> Layout.t
             val offset: t -> Bytes.t (* Field offset in struct GC_state. *)
             val setOffsets: {atomicState: Bytes.t,

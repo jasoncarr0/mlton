@@ -158,6 +158,7 @@ signature RSSA =
              | Jump
 
             datatype frameStyle = None | OffsetsAndSize | SizeOnly
+            val equals: t * t -> bool
             val frameStyle: t -> frameStyle
          end
 
@@ -171,6 +172,7 @@ signature RSSA =
                      transfer: Transfer.t}
 
             val clear: t -> unit
+            val equals: t * t -> bool
             val hash: t -> word
             val kind: t -> Kind.t
             val label: t -> Label.t

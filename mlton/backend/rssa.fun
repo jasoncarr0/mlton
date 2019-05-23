@@ -62,6 +62,37 @@ structure Operand =
       fun bool b =
          word (WordX.fromIntInf (if b then 1 else 0, WordSize.bool))
 
+      fun equals (oper1, oper2) =
+         case (oper1, oper2) of
+              (Cast (t1, ty1),
+               Cast (t2, ty2)) =>
+               Type.equals (ty1, ty2) andalso
+               equals (t1, t2)
+            | (Const c1, Const c2) =>
+               Const.equals (c1, c2)
+            | (GCState, GCState) => true
+            | (Offset {base=base1, offset=offset1, ty=ty1},
+               Offset {base=base2, offset=offset2, ty=ty2}) =>
+               Bytes.equals (offset1, offset2) andalso
+               Type.equals (ty1, ty2) andalso
+               equals (base1, base2)
+            | (ObjptrTycon ot1, ObjptrTycon ot2) =>
+               ObjptrTycon.equals (ot1, ot2)
+            | (Runtime gcField1, Runtime gcField2) =>
+               GCField.equals (gcField1, gcField2)
+            | (SequenceOffset {base=base1, index=index1, offset=offset1, scale=scale1, ty=ty1},
+               SequenceOffset {base=base2, index=index2, offset=offset2, scale=scale2, ty=ty2}) =>
+               Bytes.equals (offset1, offset2) andalso
+               Scale.equals (scale1, scale2) andalso
+               Type.equals (ty1, ty2) andalso
+               equals (base1, base2) andalso
+               equals (index1, index2)
+            | (Var {var=var1, ty=ty1},
+               Var {var=var2, ty=ty2}) =>
+               Var.equals (var1, var2) andalso
+               Type.equals (ty1, ty2)
+            | _ => false
+
       local
          val newHash = Random.word
          val gcState = newHash ()
@@ -205,6 +236,44 @@ structure Statement =
        | SetExnStackSlot
        | SetHandler of Label.t
        | SetSlotExnStack
+
+      fun equals (st1, st2) =
+         case (st1, st2) of
+              (Bind {dst=(dst1,dstty1), isMutable=isMutable1, src=src1},
+               Bind {dst=(dst2,dstty2), isMutable=isMutable2, src=src2}) =>
+               Var.equals (dst1, dst2) andalso
+               Type.equals (dstty1, dstty2) andalso
+               isMutable1 = isMutable2 andalso
+               Operand.equals (src1, src2)
+            | (Move {dst=dst1, src=src1},
+               Move {dst=dst2, src=src2}) =>
+               Operand.equals (dst1, dst2) andalso
+               Operand.equals (src1, src2)
+            | (Object {dst=(dst1,dstty1), header=header1, size=size1},
+               Object {dst=(dst2,dstty2), header=header2, size=size2}) =>
+               Var.equals (dst1, dst2) andalso
+               Type.equals (dstty1, dstty2) andalso
+               header1 = header2 andalso
+               Bytes.equals (size1, size2)
+            | (PrimApp {args=args1, dst=dst1, prim=prim1},
+               PrimApp {args=args2, dst=dst2, prim=prim2}) =>
+               Option.equals (dst1, dst2,
+                  fn ((v1, ty1), (v2, ty2)) =>
+                     Var.equals (v1, v2) andalso
+                     Type.equals (ty1, ty2)) andalso
+               Prim.equals (prim1, prim2) andalso
+               Vector.equals (args1, args2, Operand.equals)
+            | (Profile pexp1, Profile pexp2) =>
+               ProfileExp.equals (pexp1, pexp2)
+            | (ProfileLabel plab1, ProfileLabel plab2) =>
+               ProfileLabel.equals (plab1, plab2)
+            | (SetExnStackLocal, SetExnStackLocal) => true
+            | (SetExnStackSlot, SetExnStackSlot) => true
+            | (SetHandler l1, SetHandler l2) =>
+              Label.equals (l1, l2)
+            | (SetSlotExnStack, SetSlotExnStack) => true
+            | _ => false
+
 
       fun 'a foldDefUse (s, a: 'a, {def: Var.t * Type.t * 'a -> 'a,
                                     use: Var.t * 'a -> 'a}): 'a =
@@ -510,6 +579,31 @@ structure Transfer =
 
       fun foreachUse (t, f) = foldUse (t, (), f o #1)
 
+      fun equals (t1, t2) =
+         case (t1, t2) of
+              (CCall {args=args1, return=return1, func=func1},
+               CCall {args=args2, return=return2, func=func2}) =>
+               CFunction.equals (func1, func2) andalso
+               Option.equals (return1, return2, Label.equals) andalso
+               Vector.equals (args1, args2, Operand.equals)
+            | (Call {args=args1, func=func1, return=return1},
+               Call {args=args2, func=func2, return=return2}) =>
+               Func.equals (func1, func2) andalso
+               Return.equals (return1, return2) andalso
+               Vector.equals (args1, args2, Operand.equals)
+            | (Goto {args=args1, dst=dst1},
+               Goto {args=args2, dst=dst2}) =>
+               Label.equals (dst1, dst2) andalso
+               Vector.equals (args1, args2, Operand.equals)
+            | (Raise args1, Raise args2) =>
+               Vector.equals (args1, args2, Operand.equals)
+            | (Return args1, Return args2) =>
+               Vector.equals (args1, args2, Operand.equals)
+            | (Switch switch1, Switch switch2) =>
+               Switch.equals (switch1, switch2)
+            | _ => false
+
+
       fun hash t =
          case t of
               CCall {args, return, ...} =>
@@ -603,6 +697,19 @@ structure Kind =
        | Handler
        | Jump
 
+      fun equals (k1, k2) =
+         case (k1, k2) of
+              (Cont {handler=handler1},
+               Cont {handler=handler2}) =>
+               Handler.equals (handler1, handler2)
+            | (CReturn {func=func1},
+               CReturn {func=func2}) =>
+               CFunction.equals (func1, func2)
+            | (Handler, Handler) => true
+            | (Jump, Jump) => true
+            | _ => false
+
+
       fun layout k =
          let
             open Layout
@@ -665,6 +772,18 @@ structure Block =
           ; Label.clear label
           ; Vector.foreach (statements, Statement.clear)
           ; Transfer.clear transfer)
+
+      fun equals (T {args=args1, kind=kind1, label=label1,
+                     statements=statements1, transfer=transfer1},
+                  T {args=args2, kind=kind2, label=label2,
+                     statements=statements2, transfer=transfer2}) =
+         Kind.equals (kind1, kind2) andalso
+         Label.equals (label1, label2) andalso
+         Transfer.equals (transfer1, transfer2) andalso
+         Vector.equals (args1, args2, fn ((v1, ty1), (v2, ty2)) =>
+            Var.equals (v1, v2) andalso
+            Type.equals (ty1, ty2)) andalso
+         Vector.equals (statements1, statements2, Statement.equals)
 
       fun hash (T {args, label, statements, transfer, ...}) =
          Hash.list [
