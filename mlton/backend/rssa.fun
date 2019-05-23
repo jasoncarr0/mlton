@@ -226,6 +226,18 @@ structure Statement =
 
       fun foreachUse (s, f) = foldUse (s, (), f o #1)
 
+
+      fun replaceDefs (s: t, f: Var.t -> Var.t): t =
+         case s of
+            Bind {dst=(x, ty), src, isMutable} =>
+               Bind {dst=(f x, ty), src=src, isMutable=isMutable}
+          | Object {dst=(dst, ty), header, size} =>
+               Object {dst=(f dst, ty), header=header, size=size}
+          | PrimApp {dst=SOME (dst, ty), args, prim} =>
+               PrimApp {dst=SOME (f dst, ty), args=args, prim=prim}
+          | _ => s
+
+
       fun replaceUses (s: t, f: Var.t -> Operand.t): t =
          let
             fun oper (z: Operand.t): Operand.t =
