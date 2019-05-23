@@ -58,7 +58,7 @@ signature RSSA =
             val cast: t * Type.t -> t
             val layout: t -> Layout.t
             val null: t
-            val replaceVar: t * (Var.t -> t) -> t
+            val replaceVar: t * (Var.t * Type.t -> t) -> t
             val ty: t -> Type.t
             val word: WordX.t -> t
             val zero: WordSize.t -> t
@@ -97,8 +97,8 @@ signature RSSA =
             val foldUse: t * 'a * (Var.t * 'a -> 'a) -> 'a
             val foreachUse: t * (Var.t -> unit) -> unit
             val layout: t -> Layout.t
-            val replaceDefs: t * (Var.t -> Var.t) -> t
-            val replaceUses: t * (Var.t -> Operand.t) -> t
+            val replaceDefs: t * (Var.t * Type.t -> Var.t * Type.t) -> t
+            val replaceUses: t * (Var.t * Type.t -> Operand.t) -> t
             val resize: Operand.t * Type.t -> Operand.t * t list
             val toString: t -> string
          end
@@ -145,7 +145,7 @@ signature RSSA =
             val ifZero: Operand.t * {falsee: Label.t, truee: Label.t} -> t
             val layout: t -> Layout.t
             val replaceLabels: t * (Label.t -> Label.t) -> t
-            val replaceUses: t * (Var.t -> Operand.t) -> t
+            val replaceUses: t * (Var.t * Type.t -> Operand.t) -> t
          end
 
       structure Kind:

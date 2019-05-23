@@ -128,7 +128,7 @@ structure Operand =
           | Var {var, ...} => f (var, a)
           | _ => a
 
-      fun replaceVar (z: t, f: Var.t -> t): t =
+      fun replaceVar (z: t, f: Var.t * Type.t -> t): t =
          let
             fun loop (z: t): t =
                case z of
@@ -143,7 +143,7 @@ structure Operand =
                                   offset = offset,
                                   scale = scale,
                                   ty = ty}
-                | Var {var, ...} => f var
+                | Var {var, ty} => f (var, ty)
                 | _ => z
          in
             loop z
@@ -227,18 +227,18 @@ structure Statement =
       fun foreachUse (s, f) = foldUse (s, (), f o #1)
 
 
-      fun replaceDefs (s: t, f: Var.t -> Var.t): t =
+      fun replaceDefs (s: t, f: Var.t * Type.t -> Var.t * Type.t ): t =
          case s of
-            Bind {dst=(x, ty), src, isMutable} =>
-               Bind {dst=(f x, ty), src=src, isMutable=isMutable}
-          | Object {dst=(dst, ty), header, size} =>
-               Object {dst=(f dst, ty), header=header, size=size}
-          | PrimApp {dst=SOME (dst, ty), args, prim} =>
-               PrimApp {dst=SOME (f dst, ty), args=args, prim=prim}
+            Bind {dst, src, isMutable} =>
+               Bind {dst=f dst, src=src, isMutable=isMutable}
+          | Object {dst, header, size} =>
+               Object {dst=f dst, header=header, size=size}
+          | PrimApp {dst=SOME dst, args, prim} =>
+               PrimApp {dst=SOME (f dst), args=args, prim=prim}
           | _ => s
 
 
-      fun replaceUses (s: t, f: Var.t -> Operand.t): t =
+      fun replaceUses (s: t, f: Var.t * Type.t -> Operand.t): t =
          let
             fun oper (z: Operand.t): Operand.t =
                Operand.replaceVar (z, f)
@@ -503,7 +503,7 @@ structure Transfer =
              | Return zs => Return zs
              | Switch s => Switch (Switch.replaceLabels (s, f))
 
-      fun replaceUses (t: t, f: Var.t -> Operand.t): t =
+      fun replaceUses (t: t, f: Var.t * Type.t -> Operand.t): t =
          let
             fun oper z = Operand.replaceVar (z, f)
             fun opers zs = Vector.map (zs, oper)
@@ -1058,7 +1058,7 @@ structure Program =
                end
             fun loopStatement (s: Statement.t): Statement.t option =
                let
-                  val s = Statement.replaceUses (s, replaceVar)
+                  val s = Statement.replaceUses (s, replaceVar o #1)
                   fun keep () =
                      (Statement.foreachDef (s, dontReplace)
                       ; SOME s)
@@ -1126,7 +1126,7 @@ structure Program =
                end
             fun loopTransfer t =
                (Transfer.foreachDef (t, dontReplace)
-                ; Transfer.replaceUses (t, replaceVar))
+                ; Transfer.replaceUses (t, replaceVar o #1))
             fun loopFormals args = Vector.foreach (args, dontReplace)
             fun loopFunction (f: Function.t): Function.t =
                let
