@@ -62,6 +62,23 @@ structure Operand =
       fun bool b =
          word (WordX.fromIntInf (if b then 1 else 0, WordSize.bool))
 
+      local
+         val newHash = Random.word
+         val gcState = newHash ()
+         val runtime = newHash ()
+      in
+         fun hash t =
+            case t of
+                 Cast (t, _) => Hash.permute (hash t)
+               | Const c => Const.hash c
+               | GCState => gcState
+               | Offset {base, offset, ...} => Hash.combine (hash base, Bytes.toWord offset)
+               | ObjptrTycon ot => Hash.permute (Word.fromInt (ObjptrTycon.index ot))
+               | Runtime _ => runtime
+               | SequenceOffset {base, index, offset, ...} =>
+                    Hash.combine3 (hash base, hash index, Bytes.toWord offset)
+               | Var {var, ...} => Var.hash var
+      end
       val ty =
          fn Cast (_, ty) => ty
           | Const c =>
@@ -225,6 +242,33 @@ structure Statement =
          foldDefUse (s, a, {def = #3, use = f})
 
       fun foreachUse (s, f) = foldUse (s, (), f o #1)
+
+      local
+         val newHash = Random.word
+         val profile = newHash ()
+         val profileLabel = newHash ()
+         val setExnStackLocal = newHash ()
+         val setExnStackSlot = newHash ()
+         val setSlotExnStack = newHash ()
+      in
+         fun hash s =
+            case s of
+               Bind {dst=(dst,_), src, isMutable} =>
+                  Hash.combine3 (Var.hash dst, Operand.hash src, if isMutable then 0w1 else 0w0)
+             | Move {dst, src} =>
+                  Hash.combine (Operand.hash dst, Operand.hash src)
+             | Object {dst=(dst, _), header, size} =>
+                  Hash.combine3 (Var.hash dst, header, Bytes.toWord size)
+             | PrimApp {args, dst, ...} =>
+                  Hash.combine (Hash.vectorMap (args, Operand.hash),
+                                 Option.fold (dst, 0w0, (fn ((v, _), x) => Hash.combine (Var.hash v, x))))
+             | Profile _ => profile
+             | ProfileLabel _ => profileLabel
+             | SetExnStackLocal => setExnStackLocal
+             | SetExnStackSlot => setExnStackSlot
+             | SetHandler l => Label.hash l
+             | SetSlotExnStack => setSlotExnStack
+      end
 
 
       fun replaceDefs (s: t, f: Var.t * Type.t -> Var.t * Type.t ): t =
@@ -466,6 +510,31 @@ structure Transfer =
 
       fun foreachUse (t, f) = foldUse (t, (), f o #1)
 
+      fun hash t =
+         case t of
+              CCall {args, return, ...} =>
+                  Hash.combine
+                     (Hash.vectorMap (args, Operand.hash),
+                      Option.fold (return, 0w0,
+                        fn (l, x) => Hash.combine (Label.hash l, x)))
+            | Call {args, func, ...} =>
+                  Hash.combine
+                     (Hash.vectorMap (args, Operand.hash),
+                      Func.hash func)
+            | Goto {args, dst} =>
+                  Hash.combine
+                     (Hash.vectorMap (args, Operand.hash),
+                      Label.hash dst)
+            | Raise ops =>
+                  (Hash.permute o
+                  Hash.vectorMap) (ops, Operand.hash)
+            | Return ops =>
+                  Hash.vectorMap (ops, Operand.hash)
+            | Switch (Switch.T {cases, test, ...}) =>
+                  Hash.combine
+                  (Hash.vectorMap (cases, fn (_, l) => Label.hash l),
+                   Operand.hash test)
+
       fun clear (t: t): unit =
          foreachDef (t, Var.clear o #1)
 
@@ -596,6 +665,14 @@ structure Block =
           ; Label.clear label
           ; Vector.foreach (statements, Statement.clear)
           ; Transfer.clear transfer)
+
+      fun hash (T {args, label, statements, transfer, ...}) =
+         Hash.list [
+            Hash.vectorMap (args,
+               fn (v, _) => Var.hash v),
+            Hash.vectorMap (statements, Statement.hash),
+            Label.hash label,
+            Transfer.hash transfer]
 
       fun layout (T {args, kind, label, statements, transfer, ...}) =
          let

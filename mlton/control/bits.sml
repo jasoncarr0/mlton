@@ -92,6 +92,7 @@ local
                val toInt: t -> int
                val toIntInf: t -> IntInf.t
                val toString: t -> string
+               val toWord: t -> word
                val zero: t
             end
 
@@ -162,6 +163,8 @@ local
                (* fun isWord64Aligned b = isAligned (b, {alignment = inWord64}) *)
 
                fun toBits b = b * Bits.inByte
+
+               val toWord = Word.fromIntInf
 
                val align = align
                (* val alignDown = alignDown *)
