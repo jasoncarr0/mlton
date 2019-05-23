@@ -173,6 +173,8 @@ signature RSSA =
             val kind: t -> Kind.t
             val label: t -> Label.t
             val layout: t -> Layout.t
+            val replaceLabels: t * (Label.t -> Label.t) -> t
+            val replaceVars: t * (Var.t * Type.t -> Var.t * Type.t) -> t
          end
 
       structure Function:

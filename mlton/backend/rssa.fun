@@ -623,6 +623,29 @@ structure Block =
       fun foreachUse (T {statements, transfer, ...}, f) =
          (Vector.foreach (statements, fn s => Statement.foreachUse (s, f))
           ; Transfer.foreachUse (transfer, f))
+
+      fun replaceLabels (T {args, kind, label, statements, transfer}, f) =
+         T {args=args,
+            kind=kind,
+            label=f label,
+            statements=statements,
+            transfer=Transfer.replaceLabels(transfer, f)}
+
+      fun replaceVars (T {args, kind, label, statements, transfer}, f) =
+         let
+            fun oper vt =
+               case f vt of
+                    (v, t) => Operand.Var {var=v, ty=t}
+         in
+            T {args=Vector.map(args, f),
+               kind=kind,
+               label=label,
+               statements=Vector.map (statements,
+                  fn s => Statement.replaceDefs
+                     (Statement.replaceUses (s, oper),
+                      f)),
+               transfer=Transfer.replaceUses (transfer, oper)}
+         end
    end
 
 structure Function =
