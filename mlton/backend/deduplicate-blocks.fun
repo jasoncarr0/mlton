@@ -205,8 +205,21 @@ fun transformFunction main func =
              Vector.foreach (statements,
                fn s => Statement.foreachDef (s,
                   fn (v, _) => setVarInfo (v, {def=label, id=getId v})))))
+
+      (* globals have an id as they may be distinct,
+       * but avoiding including them is important for performance *)
+      val r = ref (Buffer.length vars)
+      fun getId () =
+         let
+            val i = !r
+            val _ = Int.inc r
+         in
+            i
+         end
       val _ = Function.foreachDef (main,
-         fn (v, _) => setVarInfo (v, {def=start, id=getId v}))
+         fn (v, _) => setVarInfo (v, {def=start, id=getId ()}))
+
+      val numVars = !r
       val vars = Buffer.toVector vars
 
       val partition = Set.fromList (List.tabulate (Vector.length vars, fn i => Element.Var i))
@@ -239,7 +252,9 @@ fun transformFunction main func =
                   fn x =>
                      case x of
                           Element.Var vi =>
-                              def := Set.add (!def, Vector.sub (varTransition, vi))
+                              if vi < Vector.length varTransition
+                                 then def := Set.add (!def, Vector.sub (varTransition, vi))
+                              else ()
                         | Element.Label li =>
                              let
                                 val (labelIds, varIds) = Vector.sub (labelTransitions, li)
@@ -258,7 +273,7 @@ fun transformFunction main func =
 
       fun info init =
          let
-            val vInfo = Array.tabulate (Vector.length vars, fn _ => init ())
+            val vInfo = Array.tabulate (numVars, fn _ => init ())
             val lInfo = Array.tabulate (Vector.length labels, fn _ => init ())
             fun mkRef (arr, i) =
                {get=fn () => Array.sub (arr, i),
