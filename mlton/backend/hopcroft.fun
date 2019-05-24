@@ -27,12 +27,13 @@ signature HOPCROFT = sig
        * Empty sets are cheap to deal with, so this can just
        * be a proxy for the list of characters *)
       transitionsTo: Set.t -> Set.t list,
-      info: (unit -> t) -> u -> t ref
+      info: (unit -> t) -> u -> {set: t -> unit,
+                                 get: unit -> t}
    }
    -> Set.t list
 end
 
-functor Hopcroft (S: HOPCROFT_STRUCTS) :> HOPCROFT =
+functor Hopcroft (S: HOPCROFT_STRUCTS) : HOPCROFT =
 struct
 
 open S
@@ -41,7 +42,9 @@ structure RA = ResizableArray
 type u = Set.Element.t
 type t = int (* index of set *)
 
-fun run {initialPartition, transitionsTo, info} =
+fun run {initialPartition, transitionsTo,
+         info: (unit -> t) -> u -> {set: t -> unit,
+                                    get: unit -> t}} =
    let
       val worklist = RA.empty ()
       val sets = RA.empty ()
@@ -56,8 +59,8 @@ fun run {initialPartition, transitionsTo, info} =
             | _ => raise Fail "Hopcroft.run: initial partition must contain at least one set"
 
       val infoFor = info (fn () => 0)
-      fun getInfo v = !(infoFor v)
-      fun setInfo (v, i) = infoFor v := i
+      fun getInfo v = #get (infoFor v) ()
+      fun setInfo (v, i) = #set (infoFor v) i
 
       fun splitBy x =
          let

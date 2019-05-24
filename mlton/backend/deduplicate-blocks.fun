@@ -45,33 +45,51 @@ structure Set = OrderedUniqueSet(
             | Element.Label l => [Layout.str "Label ", Layout.str (Int.toString l)])
    end)
 
-structure Hopcroft = Hopcroft(
-   struct
-      structure Set = Set
-   end)
+structure Hopcroft = Hopcroft(structure Set = Set)
 
 
 fun transformFunction func =
    let
-      val {get=varDef, set=setVarDef, destroy=destVarDef} =
-         Property.destGetSetOnce (Var.plist,
-            Property.initRaise ("DeduplicateBlocks.transform.varDef", Var.layout))
-      val {args, blocks, start, ...} = Function.dest func
-      val _ = Vector.foreach (args,
-         fn (v, _) => setVarDef (v, start))
-      val _ = Vector.foreach (blocks,
-         fn Block.T {args, statements, label, ...} =>
-            (Vector.foreach (args, fn (v, _) => setVarDef (v, label)) ;
-             Vector.foreach (statements,
-               fn s => Statement.foreachDef (s,
-                  fn (v, _) => setVarDef (v, label)))))
-
+      (* The gist of the algorithm is as follows:
+       * for each block in the function, we collect the variables and labels
+       * that appear in that block in order, replacing them with a canonical version.
+       *
+       * We also act as though any Gotos are inlined, appending them onto the current block,
+       * so that we're not as easily foiled by different inlining decisions.
+       *
+       * We'll place them into obviously distinct classes, then solve a greatest
+       * fixed point of references to each other using Hopcroft's DFA minimization algorithm.
+       *
+       * Now, each block of the same shape is the same form, so we can unify them
+       * purely based on Block.hash and Block.equals. So we place blocks which
+       * are the same shape into the same class in the initial partition, since
+       * these blocks are not distinguishable on their own.
+       * All variables are placed in the same initial partition.
+       *
+       * Now, we construct an automaton over these labels/vars with edges:
+       * def: from each var to its definition label
+       * label1..n : from each label to unique label appearing in it
+       * var1..n : each var use and def within a block
+       *    (remember that blocks with different shapes are always different,
+       *    so it's okay to conflate label/vars from diffent shapes)
+       *
+       * As it happens, we don't need to care about recursion or local definitions
+       * since these will simply turn into loops for which distinguishability
+       * will suffice.
+       *
+       * At this point Hopcroft's algorithm produces a minimal partition
+       * of distinguishable labels. We simply choose one from each class and
+       * map all occurences to that label. A bias towards smaller true size
+       * picks those which likely have more code shared (or else they'll get
+       * their destination inlined anyway)
+       *)
+      val {blocks, ...} = Function.dest func
       val {get=labelInfo, set=setLabelInfo, destroy=destLabelInfo} =
          Property.destGetSet (Label.plist,
             Property.initRaise ("DeduplicateBlocks.transform.labelBlock", Label.layout))
       val _ = Vector.foreach (blocks,
          fn b as Block.T {label, ...} =>
-            setLabelInfo (label, {block=b, labels=[], vars=[]}))
+            setLabelInfo (label, {block=b, blabels=[], bvars=[], id= ~1}))
 
 
       fun mkSupply (init, next) =
@@ -87,7 +105,7 @@ fun transformFunction func =
                         getI i)
 
          in
-            getI
+            (getI, arr)
          end
       fun mkSwap {supply, hash, equals} =
          let
@@ -105,8 +123,8 @@ fun transformFunction func =
                      x
                   end), xs)
          end
-      val varSupply = mkSupply (Var.newString "xx", Var.new)
-      val labelSupply = mkSupply (Label.newString "LL", Label.new)
+      val (varSupply, _) = mkSupply (Var.newString "xx", Var.new)
+      val (labelSupply, _) = mkSupply (Label.newString "LL", Label.new)
 
 
       val equivClasses = HashTable.new {hash=Block.hash, equals=Block.equals}
@@ -142,8 +160,8 @@ fun transformFunction func =
                         | _ => b
                   end
 
-               val (swapLabel, labels) = mkSwap {supply=labelSupply, hash=Label.hash, equals=Label.equals}
-               val (swapVar, vars) = mkSwap {supply=varSupply, hash=Var.hash, equals=Var.equals}
+               val (swapLabel, blabels) = mkSwap {supply=labelSupply, hash=Label.hash, equals=Label.equals}
+               val (swapVar, bvars) = mkSwap {supply=varSupply, hash=Var.hash, equals=Var.equals}
                val b = Block.replaceLabels (b, swapLabel)
                val b = Block.replaceVars (b,
                   fn (v, t) => (swapVar v, t))
@@ -151,20 +169,124 @@ fun transformFunction func =
                val id = Buffer.length labels
 
                val _ = Buffer.add (labels, label)
-               val _ = HashTable.insertIfNew (equivClasses,
-                  b, fn () => ref Set.singleton (Label id),
-                  fn s => s := Set.add (!s, Label id))
+               val _ = HashTable.insertIfNew (equivClasses, b,
+                  fn () => ref (Set.singleton (Element.Label id)),
+                  fn s => s := Set.add (!s, Element.Label id))
                val {block, ...} = labelInfo label
-               val _ = setLabelInfo (label, {block=block, labels=(!labels), vars=(!vars)})
+               val blabels = !blabels
+               val bvars = !bvars
+               val _ = setLabelInfo (label, {block=block, blabels=blabels, bvars=bvars, id=id})
             in
                ()
             end)
-      val data = Vector.toList (Buffer.toVector labels)
+
+      val labels = Buffer.toVector labels
+      val labelSets = List.map (HashTable.toList equivClasses, ! o #2)
+
+      val vars = Buffer.new {dummy=Var.bogus}
+      fun getId v =
+         let
+            val i = Buffer.length vars
+            val _ = Buffer.add (vars, v)
+         in
+            i
+         end
+      val {get=varInfo, set=setVarInfo, destroy=destVarInfo} =
+         Property.destGetSetOnce (Var.plist,
+            Property.initRaise ("DeduplicateBlocks.transform.varInfo", Var.layout))
+      val {args, blocks, start, ...} = Function.dest func
+      val _ = Vector.foreach (args,
+         fn (v, _) => setVarInfo (v, {def=start, id=getId v}))
+      val _ = Vector.foreach (blocks,
+         fn Block.T {args, statements, label, ...} =>
+            (Vector.foreach (args, fn (v, _) => setVarInfo (v, {def=label, id=getId v})) ;
+             Vector.foreach (statements,
+               fn s => Statement.foreachDef (s,
+                  fn (v, _) => setVarInfo (v, {def=label, id=getId v})))))
+      val vars = Buffer.toVector vars
+
+      val partition = Set.fromList (List.tabulate (Vector.length vars, fn i => Element.Var i))
+         :: labelSets
+
+
+      (* Now we precompute a table of distinct transitions for each var and label
+       * There is always one def character in the alphabet for var -> label
+       * and each label has a list of labels and vars it depends on *)
+
+      val labelTransitions =
+         Vector.map (labels,
+            fn l =>
+               let
+                  val {blabels, bvars, ...} = labelInfo l
+                  val labelIds = List.map (blabels, Element.Label o #id o labelInfo)
+                  val varIds = List.map (bvars, Element.Var o #id o varInfo)
+               in
+                  (labelIds, varIds)
+               end)
+      val varTransition = Vector.map (vars, Element.Var o #id o labelInfo o #def o varInfo)
+
+      fun transitionsTo s =
+         let
+            val (labelsI, blabels) = mkSupply (ref Set.empty, fn _ => ref Set.empty)
+            val (varsI, bvars) = mkSupply (ref Set.empty, fn _ => ref Set.empty)
+            val def = ref Set.empty
+            val _ =
+               Set.foreach (s,
+                  fn x =>
+                     case x of
+                          Element.Var vi =>
+                              def := Set.add (!def, Vector.sub (varTransition, vi))
+                        | Element.Label li =>
+                             let
+                                val (labelIds, varIds) = Vector.sub (labelTransitions, li)
+                                val _ = List.foreachi (labelIds,
+                                    fn (ix, lid) => labelsI ix := Set.add (!(labelsI ix), lid))
+                                val _ = List.foreachi (varIds,
+                                    fn (ix, vid) => varsI ix := Set.add (!(varsI ix), vid))
+                              in
+                                 ()
+                             end)
+         in
+            List.concat [[!def],
+               ResizableArray.toListMap (blabels, !),
+               ResizableArray.toListMap (bvars, !)]
+         end
+
+      fun info init =
+         let
+            val vInfo = Array.tabulate (Vector.length vars, fn _ => init ())
+            val lInfo = Array.tabulate (Vector.length labels, fn _ => init ())
+            fun mkRef (arr, i) =
+               {get=fn () => Array.sub (arr, i),
+                set=fn u => Array.update (arr, i, u)}
+         in
+            fn Element.Var vi => mkRef (vInfo, vi)
+             | Element.Label li => mkRef (lInfo, li)
+         end
+
+      val partition = Hopcroft.run
+         {initialPartition=partition,
+          transitionsTo=transitionsTo,
+          info=info}
 
       val _ = Control.diagnostic (fn () =>
-         (Layout.str o Int.toString) (HashTable.size equivClasses))
+         let
+            open Layout
+            val numBlockClasses =
+               (List.length (List.keepAll (partition, fn s =>
+                  Set.exists (s, fn e => case e of Element.Label _ => true | _ => false))))
+            val numShapeClasses =
+               HashTable.size equivClasses
+            val numBlocks = Vector.length blocks
+         in
+            mayAlign
+            [seq [str "Function: ", Func.layout (Function.name func)],
+             seq [str "Initial: ", Int.layout numBlocks],
+             seq [str "Shapes: ", Int.layout numShapeClasses],
+             seq [str "Unique: ", Int.layout numBlockClasses]]
+         end)
 
-      val _ = destVarDef ()
+      val _ = destVarInfo ()
       val _ = destLabelInfo ()
    in
       func
