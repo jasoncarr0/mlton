@@ -48,7 +48,7 @@ structure Set = OrderedUniqueSet(
 structure Hopcroft = Hopcroft(structure Set = Set)
 
 
-fun transformFunction func =
+fun transformFunction main func =
    let
       (* The gist of the algorithm is as follows:
        * for each block in the function, we collect the variables and labels
@@ -182,6 +182,8 @@ fun transformFunction func =
 
       val labels = Buffer.toVector labels
       val labelSets = List.map (HashTable.toList equivClasses, ! o #2)
+      val numShapeClasses =
+         HashTable.size equivClasses
 
       val vars = Buffer.new {dummy=Var.bogus}
       fun getId v =
@@ -203,6 +205,8 @@ fun transformFunction func =
              Vector.foreach (statements,
                fn s => Statement.foreachDef (s,
                   fn (v, _) => setVarInfo (v, {def=label, id=getId v})))))
+      val _ = Function.foreachDef (main,
+         fn (v, _) => setVarInfo (v, {def=start, id=getId v}))
       val vars = Buffer.toVector vars
 
       val partition = Set.fromList (List.tabulate (Vector.length vars, fn i => Element.Var i))
@@ -275,8 +279,6 @@ fun transformFunction func =
             val numBlockClasses =
                (List.length (List.keepAll (partition, fn s =>
                   Set.exists (s, fn e => case e of Element.Label _ => true | _ => false))))
-            val numShapeClasses =
-               HashTable.size equivClasses
             val numBlocks = Vector.length blocks
          in
             mayAlign
@@ -293,9 +295,9 @@ fun transformFunction func =
    end
 
 
-fun transform (program as Program.T {functions, ...}) =
+fun transform (program as Program.T {functions, main, ...}) =
    let
-      val functions = List.map (functions, transformFunction)
+      val functions = List.map (functions, transformFunction main)
    in
       program
    end
