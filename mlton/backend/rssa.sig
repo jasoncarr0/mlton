@@ -173,6 +173,8 @@ signature RSSA =
 
             val clear: t -> unit
             val equals: t * t -> bool
+            val foreachDef: t * (Var.t * Type.t -> unit) -> unit
+            val foreachUse: t * (Var.t -> unit) -> unit
             val hash: t -> word
             val kind: t -> Kind.t
             val label: t -> Label.t

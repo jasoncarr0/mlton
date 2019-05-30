@@ -87,25 +87,29 @@ fun transformFunction main func =
       val {get=labelInfo, set=setLabelInfo, destroy=destLabelInfo} =
          Property.destGetSet (Label.plist,
             Property.initRaise ("DeduplicateBlocks.transform.labelBlock", Label.layout))
-      val _ = Vector.foreach (blocks,
-         fn b as Block.T {label, ...} =>
-            setLabelInfo (label, {block=b, blabels=[], bvars=[], id= ~1}))
 
 
       fun mkSupply (init, next) =
          let
             val arr = ResizableArray.empty ()
             val _ = ResizableArray.addToEnd (arr, init)
-            fun getI i =
+            fun get i =
                case ResizableArray.subOption (arr, i) of
                     SOME x => x
                   | NONE =>
                        (ResizableArray.addToEnd
                           (arr, next (ResizableArray.last arr)) ;
-                        getI i)
+                        get i)
 
+            fun set (i, x) =
+               let
+                  (* ensure length *)
+                  val _ = get i
+               in
+                  ResizableArray.update (arr, i, x)
+               end
          in
-            (getI, arr)
+            {get=get, set=set, arr=arr}
          end
       fun mkSwap {supply, hash, equals} =
          let
@@ -123,19 +127,69 @@ fun transformFunction main func =
                      x
                   end), xs)
          end
-      val (varSupply, _) = mkSupply (Var.newString "xx", Var.new)
-      val (labelSupply, _) = mkSupply (Label.newString "LL", Label.new)
+      val {get=varSupply, ...} = mkSupply (Var.newString "xx", Var.new)
+      val {get=labelSupply, ...} = mkSupply (Label.newString "LL", Label.new)
 
+      val labels = Buffer.new {dummy=Label.bogus}
+      val _ = Vector.foreach (blocks,
+         fn b as Block.T {label, ...} =>
+            let
+               val id = Buffer.length labels
+               val _ = Buffer.add (labels, label)
+            in
+               setLabelInfo (label, {block=b, id=id})
+            end)
+      val labels = Buffer.toVector labels
+
+      val vars = Buffer.new {dummy=Var.bogus}
+      fun getId v =
+         let
+            val i = Buffer.length vars
+            val _ = Buffer.add (vars, v)
+         in
+            i
+         end
+      val {get=varInfo, set=setVarInfo, destroy=destVarInfo} =
+         Property.destGetSet (Var.plist,
+            Property.initRaise ("DeduplicateBlocks.transform.varInfo", Var.layout))
+      val _ = Function.foreachDef (func,
+         fn (v, _) => setVarInfo (v, {id=getId v}))
+
+      (* globals have an id as they may be distinct,
+       * but avoiding including them is important for performance *)
+      val r = ref (Buffer.length vars)
+      fun getId () =
+         let
+            val i = !r
+            val _ = Int.inc r
+         in
+            i
+         end
+      val _ = Function.foreachDef (main,
+         fn (v, _) => setVarInfo (v, {id=getId ()}))
+
+      val numVars = !r
+      val vars = Buffer.toVector vars
+
+      (* Create reverse sets of destinations -> source sets *)
+
+      (* Each label points to the labels it transfers to, in order *)
+      val transfersTo = Vector.tabulate (Vector.length labels,
+         fn _ => mkSupply (Set.empty, fn _ => Set.empty))
+      (* Each label points to the variables it uses, in order *)
+      val varUses = Vector.tabulate (Vector.length vars,
+         fn _ => mkSupply (Set.empty, fn _ => Set.empty))
+      (* Each variable points to its definition site *)
+      val varDefs = Array.new (Vector.length labels, Element.Label ~1)
 
       val equivClasses = HashTable.new {hash=Block.hash, equals=Block.equals}
-      val labels = Buffer.new {dummy=Label.bogus}
-
       val _ = Vector.foreach (blocks,
          fn b as Block.T {args, kind, label, statements, transfer} =>
             let
                val b =
                   let
                      val newStatements = ref []
+                     val newTransfer = ref transfer
                      val replace = HashTable.new {hash=Var.hash, equals=Var.equals}
                      (* TODO: make sure to switch the transfer to the destination transfer *)
                      fun appendStatements (statements, transfer) =
@@ -149,126 +203,97 @@ fun transformFunction main func =
                                           ignore (HashTable.lookupOrInsert
                                              (replace, dstv, fn () => v))) ;
                                        appendStatements (statements, transfer)))
-                           | _ => ())
+                           | _ => newTransfer := transfer)
                   in
                      case transfer of
                           Transfer.Goto _ =>
                               (appendStatements (statements, transfer) ;
                               Block.T {args=args, kind=kind, label=label,
                                        statements=(Vector.fromListRev (!newStatements)),
-                                       transfer=transfer})
+                                       transfer=(!newTransfer)})
                         | _ => b
                   end
 
+               val {id, ...} = labelInfo label
+               val _ = Block.foreachDef (b,
+                  fn (v, _) =>
+                     let
+                        val {id=varId, ...} = varInfo v
+                     in
+                        Array.update (varDefs, varId, Element.Label id)
+                     end)
+
                val (swapLabel, blabels) = mkSwap {supply=labelSupply, hash=Label.hash, equals=Label.equals}
                val (swapVar, bvars) = mkSwap {supply=varSupply, hash=Var.hash, equals=Var.equals}
+
                val b = Block.replaceLabels (b, swapLabel)
                val b = Block.replaceVars (b,
                   fn (v, t) => (swapVar v, t))
-               (* label still refers to the original label, before swapping *)
-               val id = Buffer.length labels
 
-               val _ = Buffer.add (labels, label)
+               val _ = List.foreachi (!blabels,
+                  fn (j, l') =>
+                     let
+                        val {id, ...} = labelInfo l'
+                        val {get, set, ...} = Vector.sub (transfersTo, id)
+                     in
+                        set (j, Set.add (get j, Element.Label id))
+                     end)
+               val _ = List.foreachi (!bvars,
+                  fn (j, v) =>
+                     let
+                        val {id, ...} = varInfo v
+                        val {get, set, ...} = Vector.sub (varUses, id)
+                     in
+                        set (j, Set.add (get j, Element.Label id))
+                     end)
+
                val _ = HashTable.insertIfNew (equivClasses, b,
                   fn () => ref (Set.singleton (Element.Label id)),
                   fn s => s := Set.add (!s, Element.Label id))
-               val {block, ...} = labelInfo label
-               val blabels = !blabels
-               val bvars = !bvars
-               val _ = setLabelInfo (label, {block=block, blabels=blabels, bvars=bvars, id=id})
             in
                ()
             end)
-
-      val labels = Buffer.toVector labels
       val labelSets = List.map (HashTable.toList equivClasses, ! o #2)
       val numShapeClasses =
          HashTable.size equivClasses
 
-      val vars = Buffer.new {dummy=Var.bogus}
-      fun getId v =
-         let
-            val i = Buffer.length vars
-            val _ = Buffer.add (vars, v)
-         in
-            i
-         end
-      val {get=varInfo, set=setVarInfo, destroy=destVarInfo} =
-         Property.destGetSetOnce (Var.plist,
-            Property.initRaise ("DeduplicateBlocks.transform.varInfo", Var.layout))
-      val {args, blocks, start, ...} = Function.dest func
-      val _ = Vector.foreach (args,
-         fn (v, _) => setVarInfo (v, {def=start, id=getId v}))
-      val _ = Vector.foreach (blocks,
-         fn Block.T {args, statements, label, ...} =>
-            (Vector.foreach (args, fn (v, _) => setVarInfo (v, {def=label, id=getId v})) ;
-             Vector.foreach (statements,
-               fn s => Statement.foreachDef (s,
-                  fn (v, _) => setVarInfo (v, {def=label, id=getId v})))))
-
-      (* globals have an id as they may be distinct,
-       * but avoiding including them is important for performance *)
-      val r = ref (Buffer.length vars)
-      fun getId () =
-         let
-            val i = !r
-            val _ = Int.inc r
-         in
-            i
-         end
-      val _ = Function.foreachDef (main,
-         fn (v, _) => setVarInfo (v, {def=start, id=getId ()}))
-
-      val numVars = !r
-      val vars = Buffer.toVector vars
-
-      val partition = Set.fromList (List.tabulate (Vector.length vars, fn i => Element.Var i))
+      (* FIXME, globals must all be distinct *)
+      val partition = Set.fromList (Vector.toListMap (vars, Element.Var o #id o varInfo))
          :: labelSets
-
-
-      (* Now we precompute a table of distinct transitions for each var and label
-       * There is always one def character in the alphabet for var -> label
-       * and each label has a list of labels and vars it depends on *)
-
-      val labelTransitions =
-         Vector.map (labels,
-            fn l =>
-               let
-                  val {blabels, bvars, ...} = labelInfo l
-                  val labelIds = List.map (blabels, Element.Label o #id o labelInfo)
-                  val varIds = List.map (bvars, Element.Var o #id o varInfo)
-               in
-                  (labelIds, varIds)
-               end)
-      val varTransition = Vector.map (vars, Element.Var o #id o labelInfo o #def o varInfo)
 
       fun transitionsTo s =
          let
-            val (labelsI, blabels) = mkSupply (ref Set.empty, fn _ => ref Set.empty)
-            val (varsI, bvars) = mkSupply (ref Set.empty, fn _ => ref Set.empty)
-            val def = ref Set.empty
+            val {get=labels, set=setLabels, arr=blabels} = mkSupply (Set.empty, fn _ => Set.empty)
+            val {get=uses, set=setUses, arr=bvars} = mkSupply (Set.empty, fn _ => Set.empty)
+            val defs = ref Set.empty
             val _ =
                Set.foreach (s,
                   fn x =>
                      case x of
                           Element.Var vi =>
-                              if vi < Vector.length varTransition
-                                 then def := Set.add (!def, Vector.sub (varTransition, vi))
-                              else ()
+                             let
+                                val defLabel = Array.sub (varDefs, vi)
+                                val _ = defs := Set.add (!defs, defLabel)
+                                val {arr=uselabels, ...} = Vector.sub (varUses, vi)
+                                val _ = ResizableArray.foreachi (uselabels,
+                                    fn (j, ls) =>
+                                       setUses (j, Set.union (ls, uses j)))
+                              in
+                                 ()
+                             end
                         | Element.Label li =>
                              let
-                                val (labelIds, varIds) = Vector.sub (labelTransitions, li)
-                                val _ = List.foreachi (labelIds,
-                                    fn (ix, lid) => labelsI ix := Set.add (!(labelsI ix), lid))
-                                val _ = List.foreachi (varIds,
-                                    fn (ix, vid) => varsI ix := Set.add (!(varsI ix), vid))
+                                val {arr=labelTransitions, ...} = Vector.sub (transfersTo, li)
+                                val _ = ResizableArray.foreachi (labelTransitions,
+                                    fn (j, ls) =>
+                                       setLabels (j, Set.union (ls, labels j)))
                               in
                                  ()
                              end)
          in
-            List.concat [[!def],
-               ResizableArray.toListMap (blabels, !),
-               ResizableArray.toListMap (bvars, !)]
+            List.concat [[!defs],
+               ResizableArray.toList blabels,
+               ResizableArray.toList bvars]
          end
 
       fun info init =

@@ -827,21 +827,30 @@ structure Block =
             statements=statements,
             transfer=Transfer.replaceLabels(transfer, f)}
 
-      fun replaceVars (T {args, kind, label, statements, transfer}, f) =
+      fun replaceDefs (T {args, kind, label, statements, transfer}, f) =
+         T {args=Vector.map(args, f),
+            kind=kind,
+            label=label,
+            statements=Vector.map (statements,
+               fn s => Statement.replaceDefs (s, f)),
+            transfer=transfer}
+
+      fun replaceUses (T {args, kind, label, statements, transfer}, f) =
          let
             fun oper vt =
                case f vt of
                     (v, t) => Operand.Var {var=v, ty=t}
          in
-            T {args=Vector.map(args, f),
+            T {args=args,
                kind=kind,
                label=label,
                statements=Vector.map (statements,
-                  fn s => Statement.replaceDefs
-                     (Statement.replaceUses (s, oper),
-                      f)),
+                  fn s => Statement.replaceUses (s, oper)),
                transfer=Transfer.replaceUses (transfer, oper)}
          end
+
+      fun replaceVars (b, f) =
+         replaceDefs (replaceUses (b, f), f)
    end
 
 structure Function =
