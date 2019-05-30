@@ -48,7 +48,7 @@ structure Set = OrderedUniqueSet(
 structure Hopcroft = Hopcroft(structure Set = Set)
 
 
-fun transformFunction main func =
+fun transformFunction isGlobal func =
    let
       (* The gist of the algorithm is as follows:
        * for each block in the function, we collect the variables and labels
@@ -155,20 +155,7 @@ fun transformFunction main func =
       val _ = Function.foreachDef (func,
          fn (v, _) => setVarInfo (v, {id=getId v}))
 
-      (* globals have an id as they may be distinct,
-       * but avoiding including them is important for performance *)
-      val r = ref (Buffer.length vars)
-      fun getId () =
-         let
-            val i = !r
-            val _ = Int.inc r
-         in
-            i
-         end
-      val _ = Function.foreachDef (main,
-         fn (v, _) => setVarInfo (v, {id=getId ()}))
-
-      val numVars = !r
+      val numVars = Buffer.length vars
       val vars = Buffer.toVector vars
 
       (* Create reverse sets of destinations -> source sets *)
@@ -180,7 +167,7 @@ fun transformFunction main func =
       val varUses = Vector.tabulate (Vector.length vars,
          fn _ => mkSupply (Set.empty, fn _ => Set.empty))
       (* Each variable points to its definition site *)
-      val varDefs = Array.new (Vector.length labels, Element.Label ~1)
+      val varDefs = Array.new (Vector.length labels, Set.empty)
 
       val equivClasses = HashTable.new {hash=Block.hash, equals=Block.equals}
       val _ = Vector.foreach (blocks,
@@ -215,16 +202,20 @@ fun transformFunction main func =
                   end
 
                val {id, ...} = labelInfo label
+               (* Each var points to its definition label
+                * ~~> For each def add it for this label *)
+               val defs = ref []
                val _ = Block.foreachDef (b,
-                  fn (v, _) =>
-                     let
-                        val {id=varId, ...} = varInfo v
-                     in
-                        Array.update (varDefs, varId, Element.Label id)
-                     end)
+                  fn (v, _) => List.push (defs,
+                     (Element.Var o #id o varInfo) v))
+               val _ = Array.update (varDefs, id, Set.fromList (!defs))
 
                val (swapLabel, blabels) = mkSwap {supply=labelSupply, hash=Label.hash, equals=Label.equals}
                val (swapVar, bvars) = mkSwap {supply=varSupply, hash=Var.hash, equals=Var.equals}
+               val swapVar = fn v =>
+                  if isGlobal v
+                     then v
+                  else swapVar v
 
                val b = Block.replaceLabels (b, swapLabel)
                val b = Block.replaceVars (b,
@@ -233,16 +224,16 @@ fun transformFunction main func =
                val _ = List.foreachi (!blabels,
                   fn (j, l') =>
                      let
-                        val {id, ...} = labelInfo l'
-                        val {get, set, ...} = Vector.sub (transfersTo, id)
+                        val {id=targetId, ...} = labelInfo l'
+                        val {get, set, ...} = Vector.sub (transfersTo, targetId)
                      in
                         set (j, Set.add (get j, Element.Label id))
                      end)
                val _ = List.foreachi (!bvars,
                   fn (j, v) =>
                      let
-                        val {id, ...} = varInfo v
-                        val {get, set, ...} = Vector.sub (varUses, id)
+                        val {id=varId, ...} = varInfo v
+                        val {get, set, ...} = Vector.sub (varUses, varId)
                      in
                         set (j, Set.add (get j, Element.Label id))
                      end)
@@ -272,8 +263,6 @@ fun transformFunction main func =
                      case x of
                           Element.Var vi =>
                              let
-                                val defLabel = Array.sub (varDefs, vi)
-                                val _ = defs := Set.add (!defs, defLabel)
                                 val {arr=uselabels, ...} = Vector.sub (varUses, vi)
                                 val _ = ResizableArray.foreachi (uselabels,
                                     fn (j, ls) =>
@@ -283,6 +272,8 @@ fun transformFunction main func =
                              end
                         | Element.Label li =>
                              let
+                                val defVars = Array.sub (varDefs, li)
+                                val _ = defs := Set.union (!defs, defVars)
                                 val {arr=labelTransitions, ...} = Vector.sub (transfersTo, li)
                                 val _ = ResizableArray.foreachi (labelTransitions,
                                     fn (j, ls) =>
@@ -337,7 +328,11 @@ fun transformFunction main func =
 
 fun transform (program as Program.T {functions, main, ...}) =
    let
-      val functions = List.map (functions, transformFunction main)
+      val {get=isGlobal, set=setGlobal, ...} = Property.getSetOnce
+         (Var.plist, Property.initConst false)
+      val _ = Function.foreachDef (main,
+         fn (v, _) => setGlobal (v, true))
+      val functions = List.map (functions, transformFunction isGlobal)
    in
       program
    end
