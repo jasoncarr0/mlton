@@ -173,12 +173,12 @@ fun transformFunction isGlobal func =
       val _ = Vector.foreach (blocks,
          fn b as Block.T {args, kind, label, statements, transfer} =>
             let
-               val b =
+               val b = b
+                  (*
                   let
                      val newStatements = ref []
                      val newTransfer = ref transfer
                      val replace = HashTable.new {hash=Var.hash, equals=Var.equals}
-                     (* TODO: make sure to switch the transfer to the destination transfer *)
                      fun appendStatements (statements, transfer) =
                         (Vector.foreach (statements,
                            fn st => List.push (newStatements, st)) ;
@@ -199,7 +199,7 @@ fun transformFunction isGlobal func =
                                        statements=(Vector.fromListRev (!newStatements)),
                                        transfer=(!newTransfer)})
                         | _ => b
-                  end
+                  end*)
 
                val {id, ...} = labelInfo label
                (* Each var points to its definition label

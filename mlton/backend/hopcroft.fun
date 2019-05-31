@@ -46,8 +46,13 @@ fun run {initialPartition, transitionsTo,
          info: (unit -> t) -> u -> {set: t -> unit,
                                     get: unit -> t}} =
    let
+      val infoFor = info (fn () => 0)
+      fun getInfo v = #get (infoFor v) ()
+      fun setInfo (v, i) = #set (infoFor v) i
+
       val worklist = RA.empty ()
       val sets = RA.empty ()
+
       val _ =
          case initialPartition of
               x :: xs =>
@@ -55,12 +60,10 @@ fun run {initialPartition, transitionsTo,
                    List.foreachi (xs,
                      fn (i, s) =>
                         (RA.addToEnd (sets, s) ;
+                         Set.foreach (s,
+                           fn e => setInfo (e, i + 1)) ;
                          RA.addToEnd (worklist, (i + 1, s)))))
             | _ => raise Fail "Hopcroft.run: initial partition must contain at least one set"
-
-      val infoFor = info (fn () => 0)
-      fun getInfo v = #get (infoFor v) ()
-      fun setInfo (v, i) = #set (infoFor v) i
 
       fun splitBy x =
          let
