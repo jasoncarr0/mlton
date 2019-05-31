@@ -173,8 +173,7 @@ fun transformFunction isGlobal func =
       val _ = Vector.foreach (blocks,
          fn b as Block.T {args, kind, label, statements, transfer} =>
             let
-               val b = b
-                  (*
+               val b =
                   let
                      val newStatements = ref []
                      val newTransfer = ref transfer
@@ -199,7 +198,7 @@ fun transformFunction isGlobal func =
                                        statements=(Vector.fromListRev (!newStatements)),
                                        transfer=(!newTransfer)})
                         | _ => b
-                  end*)
+                  end
 
                val {id, ...} = labelInfo label
                (* Each var points to its definition label
