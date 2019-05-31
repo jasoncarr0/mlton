@@ -101,7 +101,16 @@ fun run {initialPartition, transitionsTo,
          end
 
       fun process (_, w) =
-         List.foreach (transitionsTo w, splitBy)
+         let
+            val _ = Control.diagnostic
+               (fn () =>
+               let open Layout in
+                  seq [str "Hopcroft: Processing set ", Set.layout w, str " out of ",
+                       Int.layout (RA.length worklist), str " remaining"]
+               end)
+         in
+            List.foreach (transitionsTo w, splitBy)
+         end
 
       val _ =
          while 0 < RA.length worklist do

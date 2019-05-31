@@ -304,19 +304,30 @@ fun transformFunction isGlobal func =
           transitionsTo=transitionsTo,
           info=info}
 
-      val _ = Control.diagnostic (fn () =>
+      val _ = Control.diagnostics (fn show =>
          let
             open Layout
-            val numBlockClasses =
-               (List.length (List.keepAll (partition, fn s =>
-                  Set.exists (s, fn e => case e of Element.Label _ => true | _ => false))))
+            val blockClasses = (List.keepAll (partition, fn s =>
+                  Set.exists (s, fn e => case e of Element.Label _ => true | _ => false)))
+            val numBlockClasses = (List.length blockClasses)
             val numBlocks = Vector.length blocks
+            val _ = show (seq [str "Function: ", Func.layout (Function.name func)])
+            val _ = show (seq [str "Initial: ", Int.layout numBlocks])
+            val _ = show (seq [str "Shapes: ", Int.layout numShapeClasses])
+            val _ = show (seq [str "Unique: ", Int.layout numBlockClasses])
+            val _ = show (str "Unifying:")
+            val _ = List.foreach (blockClasses,
+               fn s =>
+                  if Set.size s > 1
+                  then (show o List.layout Label.layout o List.map)
+                     (Set.toList s, fn e =>
+                        case e of
+                             Element.Label li => Vector.sub (labels, li)
+                           | _ => Error.bug "DeduplicateBlocks.transform.layout: inconsistent elements")
+
+                  else ())
          in
-            mayAlign
-            [seq [str "Function: ", Func.layout (Function.name func)],
-             seq [str "Initial: ", Int.layout numBlocks],
-             seq [str "Shapes: ", Int.layout numShapeClasses],
-             seq [str "Unique: ", Int.layout numBlockClasses]]
+            ()
          end)
 
       val _ = destVarInfo ()
