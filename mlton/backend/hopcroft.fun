@@ -86,8 +86,8 @@ fun run {initialPartition, transitionsTo,
                            Set.foreach (snx,
                               fn y => setInfo (y, inx)) ;
                            case RA.index (worklist, fn (j, _) => i = j) of
-                                SOME i =>
-                                   (RA.update (worklist, i, (i, sx)) ;
+                                SOME k =>
+                                   (RA.update (worklist, k, (i, sx)) ;
                                     RA.addToEnd (worklist, (inx, snx)))
                               | NONE =>
                                  if Set.size sx < Set.size snx
