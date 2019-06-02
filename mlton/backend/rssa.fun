@@ -351,6 +351,12 @@ structure Statement =
           | _ => s
 
 
+      fun replaceLabels (s: t, f: Label.t -> Label.t): t =
+         case s of
+              SetHandler l => SetHandler (f l)
+            | _ => s
+
+
       fun replaceUses (s: t, f: Var.t * Type.t -> Operand.t): t =
          let
             fun oper (z: Operand.t): Operand.t =
@@ -737,6 +743,12 @@ structure Kind =
                     else SizeOnly
           | Handler => SizeOnly
           | Jump => None
+
+      fun replaceLabels (k: t, f: Label.t -> Label.t) =
+         case k of
+              Cont {handler=handler} =>
+                  Cont {handler=Handler.map (handler, f)}
+            | _ => k
    end
 
 local
@@ -822,9 +834,9 @@ structure Block =
 
       fun replaceLabels (T {args, kind, label, statements, transfer}, f) =
          T {args=args,
-            kind=kind,
+            kind=Kind.replaceLabels (kind, f),
             label=f label,
-            statements=statements,
+            statements=Vector.map (statements, fn s => Statement.replaceLabels (s, f)),
             transfer=Transfer.replaceLabels(transfer, f)}
 
       fun replaceDefs (T {args, kind, label, statements, transfer}, f) =

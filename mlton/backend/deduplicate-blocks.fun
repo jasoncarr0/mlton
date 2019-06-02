@@ -48,7 +48,7 @@ structure Set = OrderedUniqueSet(
 structure Hopcroft = Hopcroft(structure Set = Set)
 
 
-fun transformFunction isGlobal func =
+fun analyzeFunction isGlobal func =
    let
       (* The gist of the algorithm is as follows:
        * for each block in the function, we collect the variables and labels
@@ -86,7 +86,7 @@ fun transformFunction isGlobal func =
       val {blocks, ...} = Function.dest func
       val {get=labelInfo, set=setLabelInfo, destroy=destLabelInfo} =
          Property.destGetSet (Label.plist,
-            Property.initRaise ("DeduplicateBlocks.transform.labelBlock", Label.layout))
+            Property.initRaise ("DeduplicateBlocks.analyzeFunction.labelInfo", Label.layout))
 
 
       fun mkSupply (init, next) =
@@ -151,7 +151,7 @@ fun transformFunction isGlobal func =
          end
       val {get=varInfo, set=setVarInfo, destroy=destVarInfo} =
          Property.destGetSet (Var.plist,
-            Property.initRaise ("DeduplicateBlocks.transform.varInfo", Var.layout))
+            Property.initRaise ("DeduplicateBlocks.analyzeFunction.varInfo", Var.layout))
       val _ = Function.foreachDef (func,
          fn (v, _) => setVarInfo (v, {id=getId v}))
 
@@ -170,10 +170,12 @@ fun transformFunction isGlobal func =
       val varDefs = Array.new (Vector.length labels, Set.empty)
 
       val equivClasses = HashTable.new {hash=Block.hash, equals=Block.equals}
+      val {get=locVars, set=setLocVars, arr=varsByLoc} = mkSupply (Set.empty, fn _ => Set.empty)
       val _ = Vector.foreach (blocks,
          fn b as Block.T {args, kind, label, statements, transfer} =>
             let
-               val b =
+               val b = b
+                  (*
                   let
                      val newStatements = ref []
                      val newTransfer = ref transfer
@@ -198,15 +200,21 @@ fun transformFunction isGlobal func =
                                        statements=(Vector.fromListRev (!newStatements)),
                                        transfer=(!newTransfer)})
                         | _ => b
-                  end
+                  end*)
 
                val {id, ...} = labelInfo label
                (* Each var points to its definition label
                 * ~~> For each def add it for this label *)
                val defs = ref []
                val _ = Block.foreachDef (b,
-                  fn (v, _) => List.push (defs,
-                     (Element.Var o #id o varInfo) v))
+                  fn (v, _) =>
+                     let
+                        val elem = (Element.Var o #id o varInfo) v
+                        val i = List.length (!defs)
+                        val _ = setLocVars (i, Set.add (locVars i, elem))
+                     in
+                        List.push (defs, elem)
+                     end)
                val _ = Array.update (varDefs, id, Set.fromList (!defs))
 
                val (swapLabel, blabels) = mkSwap {supply=labelSupply, hash=Label.hash, equals=Label.equals}
@@ -247,9 +255,7 @@ fun transformFunction isGlobal func =
       val numShapeClasses =
          HashTable.size equivClasses
 
-      (* FIXME, globals must all be distinct *)
-      val partition = Set.fromList (Vector.toListMap (vars, Element.Var o #id o varInfo))
-         :: labelSets
+      val partition = List.concat [ResizableArray.toList varsByLoc, labelSets]
 
       fun transitionsTo s =
          let
@@ -302,28 +308,36 @@ fun transformFunction isGlobal func =
          {initialPartition=partition,
           transitionsTo=transitionsTo,
           info=info}
+      val blockClasses = (List.keepAll (partition, fn s =>
+         Set.exists (s, fn e => case e of Element.Label _ => true | _ => false)))
+      val labelPartition =
+         List.map (blockClasses,
+            fn s =>
+               List.map (Set.toList s,
+                 fn Element.Label li => Vector.sub (labels, li)
+                  | _ => Error.bug "DeduplicateBlocks.analyzeFunction.labelPartition: Inconsistent elements"))
+      val varPartition =
+         List.keepAllMap (partition, fn s =>
+            if Set.exists (s, fn e => case e of Element.Var _ => true | _ => false)
+            then SOME (List.map (Set.toList s,
+               fn Element.Var vi => Vector.sub (vars, vi)
+                | _ => Error.bug "DeduplicateBlocks.analyzeFunction.varPartition: Inconsistent elements"))
+            else NONE)
 
       val _ = Control.diagnostics (fn show =>
          let
             open Layout
-            val blockClasses = (List.keepAll (partition, fn s =>
-                  Set.exists (s, fn e => case e of Element.Label _ => true | _ => false)))
             val numBlockClasses = (List.length blockClasses)
             val numBlocks = Vector.length blocks
             val _ = show (seq [str "Function: ", Func.layout (Function.name func)])
             val _ = show (seq [str "Initial: ", Int.layout numBlocks])
             val _ = show (seq [str "Shapes: ", Int.layout numShapeClasses])
             val _ = show (seq [str "Unique: ", Int.layout numBlockClasses])
-            val _ = show (str "Unifying:")
-            val _ = List.foreach (blockClasses,
-               fn s =>
-                  if Set.size s > 1
-                  then (show o List.layout Label.layout o List.map)
-                     (Set.toList s, fn e =>
-                        case e of
-                             Element.Label li => Vector.sub (labels, li)
-                           | _ => Error.bug "DeduplicateBlocks.transform.layout: inconsistent elements")
-
+            val _ = show (str "Unifying")
+            val _ = List.foreach (labelPartition,
+               fn l =>
+                  if List.length l > 1
+                  then (show o List.layout Label.layout) l
                   else ())
          in
             ()
@@ -332,18 +346,60 @@ fun transformFunction isGlobal func =
       val _ = destVarInfo ()
       val _ = destLabelInfo ()
    in
-      func
+      (func, labelPartition, varPartition)
+   end
+
+fun transformFunction (func, labelPartition, varPartition)=
+   let
+      val {get=varRemap, set=setVarRemap, ...} =
+         Property.getSetOnce (Var.plist, Property.initConst NONE)
+      val {get=labelRemap, set=setLabelRemap, ...} =
+         Property.getSetOnce (Label.plist, Property.initConst NONE)
+
+      fun remapVar v =
+         case varRemap v of
+              SOME v' => v'
+            | NONE => v
+      fun remapLabel l =
+         case labelRemap l of
+              SOME l' => l'
+            | NONE => l
+
+      val _ = List.foreach (labelPartition,
+         fn l :: ls => List.foreach (ls, fn l' => setLabelRemap (l', SOME l))
+          | _ => ())
+      val _ = List.foreach (varPartition,
+         fn v :: vs => List.foreach (vs, fn v' => setVarRemap (v', SOME v))
+          | _ => ())
+
+      val {args, blocks, name, raises, returns, start} = Function.dest func
+      val blocks = Vector.keepAllMap (blocks,
+         fn (b as Block.T {label, ...}) =>
+            if isSome (labelRemap label)
+               then NONE
+            else SOME (
+               Block.replaceLabels (
+                  Block.replaceVars (b, fn (v, ty) => (remapVar v, ty)),
+                  remapLabel)))
+      val start = remapLabel start
+   in
+      Function.new
+         {args=args, blocks=blocks, name=name,
+          raises=raises, returns=returns, start=start}
    end
 
 
-fun transform (program as Program.T {functions, main, ...}) =
+fun transform (program as Program.T {functions, handlesSignals, main, objectTypes}) =
    let
       val {get=isGlobal, set=setGlobal, ...} = Property.getSetOnce
          (Var.plist, Property.initConst false)
+      (*val main = transformFunction (analyzeFunction (fn _ => false) main)*)
       val _ = Function.foreachDef (main,
          fn (v, _) => setGlobal (v, true))
-      val functions = List.map (functions, transformFunction isGlobal)
+      val functions = List.map (functions,
+         transformFunction o analyzeFunction isGlobal)
    in
-      program
+      Program.T {functions=functions, handlesSignals=handlesSignals,
+                 main=main, objectTypes=objectTypes}
    end
 end
