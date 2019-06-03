@@ -426,7 +426,14 @@ fun allocate {formalsStackOffsets,
                end
          else NONE
       fun getOperands (xs: Var.t vector): Operand.t vector =
-         Vector.map (xs, fn x => valOf (! (valOf (#operand (varInfo x)))))
+         Vector.map (xs, fn x =>
+            case #operand (varInfo x) of
+                 SOME r =>
+                  (case !r of
+                        SOME z => z
+                      | NONE => Error.bug ("AllocateRegisters.getOperands.!: " ^ Var.toString x))
+               | NONE =>
+                    Error.bug ("AllocateRegisters.getOperands: " ^ Var.toString x))
       val getOperands =
          Trace.trace 
          ("AllocateRegisters.getOperands",
