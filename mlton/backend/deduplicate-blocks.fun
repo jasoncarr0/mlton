@@ -83,7 +83,7 @@ fun analyzeFunction isGlobal func =
        * picks those which likely have more code shared (or else they'll get
        * their destination inlined anyway)
        *)
-      val {blocks, ...} = Function.dest func
+      val {blocks, args=funcArgs, start, ...} = Function.dest func
       val {get=labelInfo, set=setLabelInfo, destroy=destLabelInfo} =
          Property.destGetSet (Label.plist,
             Property.initRaise ("DeduplicateBlocks.analyzeFunction.labelInfo", Label.layout))
@@ -220,7 +220,7 @@ fun analyzeFunction isGlobal func =
                val (swapLabel, blabels) = mkSwap {supply=labelSupply, hash=Label.hash, equals=Label.equals}
                val (swapVar, bvars) = mkSwap {supply=varSupply, hash=Var.hash, equals=Var.equals}
                val swapVar = fn v =>
-                  if isGlobal v
+                  if isGlobal v orelse Vector.exists (funcArgs, fn (v', _) => Var.equals (v, v'))
                      then v
                   else swapVar v
 
@@ -251,6 +251,12 @@ fun analyzeFunction isGlobal func =
             in
                ()
             end)
+      val startId = #id (labelInfo start)
+      val _ = Array.update (varDefs, startId,
+         Set.union (Array.sub (varDefs, startId),
+            Set.fromList (Vector.toListMap (funcArgs,
+               Element.Var o #id o varInfo o #1))))
+
       val labelSets = List.map (HashTable.toList equivClasses, ! o #2)
       val numShapeClasses =
          HashTable.size equivClasses
