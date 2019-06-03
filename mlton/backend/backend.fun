@@ -194,6 +194,10 @@ fun toMachine (program: Ssa.Program.t, codegen) =
                            doit = LimitCheck.transform}, p)
             val p = pass ({name = "insertSignalChecks", 
                            doit = SignalCheck.transform}, p)
+            (* Must be before implementHandlers*)
+            val p = maybePass ({name = "deduplicateBlocks",
+                                doit = DeduplicateBlocks.transform,
+                                execute = true}, p)
             val p = pass ({name = "implementHandlers", 
                            doit = ImplementHandlers.transform}, p)
             val p = maybePass ({name = "rssaShrink2", 
@@ -204,9 +208,6 @@ fun toMachine (program: Ssa.Program.t, codegen) =
                pass' ({name = "implementProfiling",
                        doit = ImplementProfiling.doit},
                       fn (p,_) => p, p)
-            val p = maybePass ({name = "deduplicateBlocks",
-                                doit = DeduplicateBlocks.transform,
-                                execute = true}, p)
             val p = maybePass ({name = "rssaShrink3",
                                 doit = Program.shrink,
                                 execute = true}, p)
