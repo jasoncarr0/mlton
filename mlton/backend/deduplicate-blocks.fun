@@ -399,7 +399,7 @@ fun transform (program as Program.T {functions, handlesSignals, main, objectType
    let
       val {get=isGlobal, set=setGlobal, ...} = Property.getSetOnce
          (Var.plist, Property.initConst false)
-      (*val main = transformFunction (analyzeFunction (fn _ => false) main)*)
+      val main = transformFunction (analyzeFunction (fn _ => false) main)
       val _ = Function.foreachDef (main,
          fn (v, _) => setGlobal (v, true))
       val functions = List.map (functions,
