@@ -37,6 +37,7 @@ in
    structure Var = Var
    structure WordSize = WordSize
    structure WordX = WordX
+   structure RealX = RealX
 end
 structure S = Ssa2
 local
@@ -491,8 +492,12 @@ structure Component =
                   val src = fn i =>
                      case src i of
                         Static.Data.Word w => w
-                      | _ =>
-                           Error.bug "PackedRepresentation.Component.staticTuple: bad component"
+                      | Static.Data.Real r =>
+                         (case RealX.castToWord r of
+                              SOME w => w
+                            | NONE => Error.bug
+                            "PackedRepresentation.Component.staticTuple: unexpected real")
+                      | _ => Error.bug "PackedRepresentation.Component.staticTuple: bad component"
                in
                   (Static.Data.Word o WordRep.staticTuple) (wr, {src = src})
                end
